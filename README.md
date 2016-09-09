@@ -1,2 +1,2 @@
 # sunshine
-This is a practice project
+Sunshine will rule the world.
