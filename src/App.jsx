@@ -75,8 +75,41 @@ export default function App() {
   else if (hour >= 17 && hour < 20) gradient = 'from-orange-700 via-red-800 to-purple-900';
   else if (hour >= 20 && hour < 22) gradient = 'from-purple-900 via-indigo-900 to-slate-900';
 
+  // Orb colors keyed to the time-of-day palette
+  const orbs = hour >= 5 && hour < 9
+    ? ['#f97316', '#e11d48', '#7c3aed']
+    : hour >= 9 && hour < 12
+    ? ['#0ea5e9', '#6366f1', '#0284c7']
+    : hour >= 12 && hour < 17
+    ? ['#38bdf8', '#3b82f6', '#1d4ed8']
+    : hour >= 17 && hour < 20
+    ? ['#f97316', '#dc2626', '#7c3aed']
+    : ['#7c3aed', '#4f46e5', '#1e1b4b'];
+
   return (
-    <div className={`min-h-screen bg-gradient-to-br ${gradient} transition-all duration-1000 flex flex-col`}>
+    <div className={`min-h-screen bg-gradient-to-br ${gradient} gradient-animated flex flex-col`}>
+      {/* Floating colour orbs */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        {orbs.map((color, i) => (
+          <div
+            key={i}
+            className="orb absolute"
+            style={{
+              background: color,
+              width: `${380 + i * 120}px`,
+              height: `${380 + i * 120}px`,
+              top: `${[10, 50, 30][i]}%`,
+              left: `${[60, 10, 75][i]}%`,
+              '--dur': `${18 + i * 7}s`,
+              '--tx': `${[-60, 80, -40][i]}px`,
+              '--ty': `${[40, -60, 70][i]}px`,
+              '--tx2': `${[30, -30, 60][i]}px`,
+              '--ty2': `${[-30, 50, -50][i]}px`,
+            }}
+          />
+        ))}
+      </div>
+
       {/* Subtle star-like dots overlay */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden opacity-30">
         {[...Array(40)].map((_, i) => (
