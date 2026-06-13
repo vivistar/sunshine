@@ -11,7 +11,7 @@ body {
 /* Gradient drift — scales the background so it has room to pan */
 .gradient-animated {
   background-size: 300% 300%;
-  animation: gradientDrift 12s ease infinite;
+  animation: gradientDrift 7s ease infinite;
 }
 
 @keyframes gradientDrift {
