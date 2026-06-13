@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
 import { getDailyAffirmation } from './affirmations';
-import { useWeather } from './useWeather';
+import { useWeather, LOCATIONS } from './useWeather';
 
 function formatDate(date) {
   return date.toLocaleDateString('en-US', {
@@ -61,10 +60,21 @@ function WeatherCard({ weather, loading, error }) {
   );
 }
 
+function CityWeather({ location }) {
+  const { weather, loading, error } = useWeather(location.lat, location.lon);
+  return (
+    <div>
+      <p className="text-white/40 text-xs uppercase tracking-widest font-medium mb-4">
+        {location.name}
+      </p>
+      <WeatherCard weather={weather} loading={loading} error={error} />
+    </div>
+  );
+}
+
 export default function App() {
   const today = new Date();
   const affirmation = getDailyAffirmation();
-  const { weather, loading, error } = useWeather();
 
   // Gradient shifts slowly through the day based on hour
   const hour = today.getHours();
@@ -151,12 +161,12 @@ export default function App() {
         </main>
 
         {/* Weather section */}
-        <footer className="mt-auto">
-          <p className="text-white/40 text-xs uppercase tracking-widest font-medium mb-4">
-            Brownsburg, Indiana
-          </p>
-          <WeatherCard weather={weather} loading={loading} error={error} />
-          <p className="text-white/25 text-xs mt-6">
+        <footer className="mt-auto flex flex-col gap-8">
+          <div className="grid sm:grid-cols-2 gap-8">
+            <CityWeather location={LOCATIONS.brownsburg} />
+            <CityWeather location={LOCATIONS.chicago} />
+          </div>
+          <p className="text-white/25 text-xs">
             Weather via Open-Meteo · Affirmation changes daily
           </p>
         </footer>
