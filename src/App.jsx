@@ -137,7 +137,7 @@ export default function App() {
         ))}
       </div>
 
-      <div className="relative z-10 flex flex-col min-h-screen max-w-3xl mx-auto w-full px-6 py-12">
+      <div className="relative z-10 flex flex-col min-h-screen max-w-4xl mx-auto w-full px-6 py-12">
 
         {/* Header */}
         <header className="mb-auto">
@@ -161,10 +161,14 @@ export default function App() {
         </main>
 
         {/* Weather section */}
-        <footer className="mt-auto flex flex-col gap-8">
-          <div className="grid sm:grid-cols-2 gap-8">
-            <CityWeather location={LOCATIONS.brownsburg} />
-            <CityWeather location={LOCATIONS.chicago} />
+        <footer className="mt-auto flex flex-col gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8">
+            <div className="flex flex-col gap-3">
+              <CityWeather location={LOCATIONS.brownsburg} />
+            </div>
+            <div className="flex flex-col gap-3 sm:border-l sm:border-white/20 sm:pl-8">
+              <CityWeather location={LOCATIONS.chicago} />
+            </div>
           </div>
           <p className="text-white/25 text-xs">
             Weather via Open-Meteo · Affirmation changes daily
