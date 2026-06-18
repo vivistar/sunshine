@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Survey unavailable{% endblock %}
+{% block content %}
+  <div class="card" style="text-align:center;">
+    {% if reason == "invalid" %}
+      <h1>Link not found</h1>
+      <p class="muted">This survey link isn't valid. Please check the URL from
+        your invitation email.</p>
+    {% else %}
+      <h1>This survey is closed</h1>
+      <p class="muted">Thanks for your interest
+        {%- if survey %} in <strong>{{ survey.name }}</strong>{% endif %} —
+        it's no longer accepting responses.</p>
+    {% endif %}
+  </div>
+{% endblock %}

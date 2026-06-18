@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ survey.name }}{% endblock %}
+{% block content %}
+  <h1>{{ survey.name }}</h1>
+  {% if survey.description %}<p class="muted">{{ survey.description }}</p>{% endif %}
+  <p class="muted">For each question, choose the option you most prefer.</p>
+
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  <form method="post" action="/survey/{{ participant.token }}">
+    {% for task in tasks %}
+      <div class="card">
+        <h3>Question {{ task.position }} of {{ tasks | length }}</h3>
+        <p class="muted">Which would you choose?</p>
+        <div class="row">
+          {% for concept in task.concepts %}
+            {% set field = "task_" ~ task.id %}
+            <label style="flex:1; min-width:160px; border:1px solid var(--line);
+                          border-radius:8px; padding:12px; font-weight:400; cursor:pointer;">
+              <input type="radio" name="{{ field }}" value="{{ concept.id }}" required
+                {% if selected and selected.get(field) == concept.id %}checked{% endif %}>
+              {% if concept.is_none %}
+                <strong>None of these</strong>
+              {% else %}
+                <table style="margin-top:8px;">
+                  {% for attr in attributes %}
+                    <tr>
+                      <td style="border:none; padding:3px 6px; color:var(--muted); font-size:13px;">{{ attr }}</td>
+                      <td style="border:none; padding:3px 6px;"><strong>{{ concept.levels[attr] }}</strong></td>
+                    </tr>
+                  {% endfor %}
+                </table>
+              {% endif %}
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+    <p><button type="submit">Submit my answers</button></p>
+  </form>
+{% endblock %}

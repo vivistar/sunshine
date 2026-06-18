@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Results · {{ survey.name }}{% endblock %}
+{% block content %}
+  <p><a href="/surveys/{{ survey.id }}">← Back to survey</a></p>
+  <h1>Results · {{ survey.name }}</h1>
+
+  {% if error %}
+    <div class="error">{{ error }}</div>
+  {% else %}
+    <div class="card">
+      <div class="row">
+        <div><strong>{{ results.num_observations }}</strong><br>
+          <small class="muted">choice tasks analyzed</small></div>
+        <div><strong>{{ "%.3f"|format(results.rho_squared) }}</strong><br>
+          <small class="muted">McFadden pseudo-R² (fit)</small></div>
+        <div><strong>{{ "%.1f"|format(results.log_likelihood) }}</strong><br>
+          <small class="muted">log-likelihood</small></div>
+        <div><strong>{{ "yes" if results.converged else "no" }}</strong><br>
+          <small class="muted">converged</small></div>
+      </div>
+      {% if not results.converged %}
+        <p class="notice">Estimation did not fully converge — gather more
+          responses for stable estimates.</p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Attribute importance</h2>
+      <p class="muted">How much each attribute drives choice, derived from the
+        range of its part-worth utilities.</p>
+      <table>
+        <tbody>
+        {% for imp in results.importances %}
+          <tr>
+            <td style="width:30%;">{{ imp.attribute }}</td>
+            <td style="width:55%;">
+              <div class="bar"><span style="width: {{ imp.importance }}%;"></span></div>
+            </td>
+            <td style="width:15%; text-align:right;">{{ "%.1f"|format(imp.importance) }}%</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Part-worth utilities</h2>
+      <p class="muted">Higher utility = more preferred. Each attribute's first
+        level is the reference (fixed at 0).</p>
+      {% for attribute, coefs in grouped.items() %}
+        <h3>{{ attribute }}</h3>
+        <table>
+          <thead><tr><th>Level</th><th>Utility</th><th>Std. error</th></tr></thead>
+          <tbody>
+            {% for c in coefs %}
+              <tr>
+                <td>{{ c.level }}{% if c.is_reference %} <small class="hint">(reference)</small>{% endif %}</td>
+                <td>{{ "%+.3f"|format(c.utility) }}</td>
+                <td>{% if c.is_reference %}—{% else %}{{ "%.3f"|format(c.std_error) }}{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endfor %}
+      {% if results.none_utility is not none %}
+        <h3>"None of these" option</h3>
+        <table>
+          <tbody>
+            <tr><td>None constant</td>
+              <td>{{ "%+.3f"|format(results.none_utility) }}</td>
+              <td>{{ "%.3f"|format(results.none_std_error) }}</td></tr>
+          </tbody>
+        </table>
+      {% endif %}
+    </div>
+  {% endif %}
+{% endblock %}

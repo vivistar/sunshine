@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Surveys · Sunshine{% endblock %}
+{% block content %}
+  <h1>Your surveys</h1>
+
+  {% if not email_enabled %}
+    <p class="notice">📭 <strong>Console email mode.</strong> SMTP is not configured,
+      so invitations are logged and saved to <code>dev_outbox/</code> instead of
+      being sent. Set <code>SMTP_HOST</code> in your <code>.env</code> to send for real.</p>
+  {% endif %}
+
+  <div class="card">
+    {% if surveys %}
+      <table>
+        <thead><tr><th>Name</th><th>Status</th><th>Participants</th><th></th></tr></thead>
+        <tbody>
+          {% for s in surveys %}
+            <tr>
+              <td><a href="/surveys/{{ s.id }}"><strong>{{ s.name }}</strong></a><br>
+                <small class="muted">{{ s.description or "" }}</small></td>
+              <td><span class="pill {{ s.status.value }}">{{ s.status.value }}</span></td>
+              <td>{{ s.participants | length }}</td>
+              <td><a class="btn secondary" href="/surveys/{{ s.id }}">Manage</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">No surveys yet. Create your first one below.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>New survey</h2>
+    <form method="post" action="/surveys">
+      <label for="name">Name</label>
+      <input type="text" id="name" name="name" required placeholder="e.g. Coffee subscription preferences">
+      <label for="description">Description <small class="hint">(optional)</small></label>
+      <textarea id="description" name="description" placeholder="Shown to you only."></textarea>
+      <p><button type="submit">Create survey</button></p>
+    </form>
+  </div>
+{% endblock %}
