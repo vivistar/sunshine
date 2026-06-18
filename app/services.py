@@ -6,13 +6,13 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from . import analysis, design
+from . import analysis, design, van_westendorp
 from .models import (
     Concept,
     ConceptLevel,
-    Level,
     Participant,
     ParticipantStatus,
+    PricePerception,
     Response,
     Survey,
     SurveyStatus,
@@ -109,7 +109,16 @@ def gather_observations(survey: Survey) -> list[analysis.Observation]:
 def run_analysis(survey: Survey) -> analysis.ConjointResults:
     attrs = attribute_level_lists(survey)
     observations = gather_observations(survey)
-    return analysis.analyze(attrs, observations, include_none=survey.include_none)
+    price_attribute = None
+    if survey.price_attribute_id is not None and survey.price_attribute:
+        price_attribute = survey.price_attribute.name
+    return analysis.analyze(
+        attrs,
+        observations,
+        include_none=survey.include_none,
+        price_attribute=price_attribute,
+        currency=survey.currency,
+    )
 
 
 def record_completion(
@@ -128,6 +137,56 @@ def record_completion(
                 chosen_concept_id=concept_id,
             )
         )
+    participant.status = ParticipantStatus.completed
+    participant.completed_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+# --- Van Westendorp ---------------------------------------------------------
+
+def gather_price_responses(survey: Survey) -> list[van_westendorp.PriceResponse]:
+    out: list[van_westendorp.PriceResponse] = []
+    for participant in survey.participants:
+        pp = participant.price_perception
+        if pp is not None:
+            out.append(
+                van_westendorp.PriceResponse(
+                    too_cheap=pp.too_cheap,
+                    cheap=pp.cheap,
+                    expensive=pp.expensive,
+                    too_expensive=pp.too_expensive,
+                )
+            )
+    return out
+
+
+def run_van_westendorp(survey: Survey) -> van_westendorp.VanWestendorpResults:
+    return van_westendorp.analyze(
+        gather_price_responses(survey), currency=survey.currency
+    )
+
+
+def record_price_perception(
+    db: Session,
+    participant: Participant,
+    too_cheap: float,
+    cheap: float,
+    expensive: float,
+    too_expensive: float,
+) -> None:
+    """Persist a participant's four Van Westendorp price points."""
+    if participant.price_perception is not None:
+        db.delete(participant.price_perception)
+        db.flush()
+    db.add(
+        PricePerception(
+            participant_id=participant.id,
+            too_cheap=too_cheap,
+            cheap=cheap,
+            expensive=expensive,
+            too_expensive=too_expensive,
+        )
+    )
     participant.status = ParticipantStatus.completed
     participant.completed_at = datetime.now(timezone.utc)
     db.commit()

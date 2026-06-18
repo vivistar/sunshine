@@ -21,9 +21,11 @@ from app.models import (
     Level,
     Participant,
     ParticipantStatus,
+    PricePerception,
     Response,
     Survey,
     SurveyStatus,
+    SurveyType,
 )
 from app.services import generate_and_store_design
 
@@ -69,15 +71,21 @@ def seed(num_participants: int = 60, seed: int = 7) -> None:
             num_tasks=10,
             alternatives_per_task=3,
             include_none=True,
+            currency="$",
         )
         db.add(survey)
         db.flush()
+        price_attr_id = None
         for a_pos, (attr_name, levels) in enumerate(ATTRIBUTES.items()):
             attribute = Attribute(survey_id=survey.id, name=attr_name, position=a_pos)
             db.add(attribute)
             db.flush()
+            if attr_name == "Price":
+                price_attr_id = attribute.id
             for l_pos, value in enumerate(levels):
                 db.add(Level(attribute_id=attribute.id, value=value, position=l_pos))
+        # Designate Price as the price attribute so willingness-to-pay renders.
+        survey.price_attribute_id = price_attr_id
         db.commit()
 
         generate_and_store_design(db, survey, seed=seed)
@@ -110,9 +118,41 @@ def seed(num_participants: int = 60, seed: int = 7) -> None:
         survey.status = SurveyStatus.active
         db.commit()
 
-        print(f"Seeded demo survey id={survey.id} with {num_participants} responses.")
-        print(f"Results: {settings.base_url}/surveys/{survey.id}/results")
-        print(f"Manage:  {settings.base_url}/surveys/{survey.id}")
+        print(f"Seeded conjoint survey id={survey.id} with {num_participants} responses.")
+        print(f"  Results: {settings.base_url}/surveys/{survey.id}/results")
+
+        # --- Van Westendorp demo -------------------------------------------
+        vw = Survey(
+            name="Widget price sensitivity (demo)",
+            description="A nifty widget — auto-generated price-perception demo.",
+            survey_type=SurveyType.van_westendorp,
+            status=SurveyStatus.active,
+            currency="$",
+        )
+        db.add(vw)
+        db.flush()
+        for i in range(num_participants):
+            # Centered around ~$20 with respondent-level variation.
+            center = rng.gauss(20, 4)
+            participant = Participant(
+                survey_id=vw.id,
+                email=f"vw{i + 1}@example.com",
+                status=ParticipantStatus.completed,
+            )
+            db.add(participant)
+            db.flush()
+            db.add(
+                PricePerception(
+                    participant_id=participant.id,
+                    too_cheap=max(1.0, center - rng.uniform(6, 9)),
+                    cheap=max(1.5, center - rng.uniform(2, 5)),
+                    expensive=center + rng.uniform(2, 5),
+                    too_expensive=center + rng.uniform(6, 9),
+                )
+            )
+        db.commit()
+        print(f"Seeded Van Westendorp survey id={vw.id} with {num_participants} responses.")
+        print(f"  Results: {settings.base_url}/surveys/{vw.id}/results")
 
 
 if __name__ == "__main__":

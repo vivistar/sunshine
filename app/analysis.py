@@ -18,14 +18,28 @@ This is the standard aggregate CBC estimator. Individual-level estimation
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 import numpy as np
 from scipy import optimize
+from scipy.stats import norm
 
 from .design import ConceptSpec
 
 _NONE_KEY = "__none__"
+_NUMBER_RE = re.compile(r"-?\d[\d,]*\.?\d*")
+
+
+def parse_price(value: str) -> float | None:
+    """Extract a numeric price from a level label like '$12/mo' or '1,200'."""
+    match = _NUMBER_RE.search(value or "")
+    if not match:
+        return None
+    try:
+        return float(match.group(0).replace(",", ""))
+    except ValueError:
+        return None
 
 
 @dataclass
@@ -43,12 +57,30 @@ class Coefficient:
     utility: float
     std_error: float
     is_reference: bool = False
+    t_stat: float | None = None
+    p_value: float | None = None
+    ci_low: float | None = None
+    ci_high: float | None = None
+
+    @property
+    def significant(self) -> bool:
+        return self.p_value is not None and self.p_value < 0.05
 
 
 @dataclass
 class AttributeImportance:
     attribute: str
     importance: float  # percent, 0-100
+
+
+@dataclass
+class WTPEntry:
+    """Willingness to pay for a level, in the survey's currency units."""
+
+    attribute: str
+    level: str
+    wtp: float
+    is_reference: bool = False
 
 
 @dataclass
@@ -62,6 +94,11 @@ class ConjointResults:
     rho_squared: float = 0.0
     num_observations: int = 0
     converged: bool = False
+    # Willingness-to-pay (populated when a numeric price attribute is set).
+    wtp: list[WTPEntry] = field(default_factory=list)
+    price_attribute: str | None = None
+    price_slope: float | None = None  # utility per currency unit (negative)
+    currency: str = "$"
 
 
 class Encoder:
@@ -139,10 +176,23 @@ def _observed_information(
     return info
 
 
+def _coef_stats(
+    util: float, se: float
+) -> tuple[float | None, float | None, float | None, float | None]:
+    """t-statistic, two-sided p-value, and 95% CI for a coefficient."""
+    if not se or not np.isfinite(se):
+        return None, None, None, None
+    t = util / se
+    p = 2.0 * (1.0 - norm.cdf(abs(t)))
+    return float(t), float(p), float(util - 1.96 * se), float(util + 1.96 * se)
+
+
 def analyze(
     attributes: list[tuple[str, list[str]]],
     observations: list[Observation],
     include_none: bool = False,
+    price_attribute: str | None = None,
+    currency: str = "$",
 ) -> ConjointResults:
     """Estimate part-worth utilities and attribute importance from choices."""
     if not attributes:
@@ -190,6 +240,7 @@ def analyze(
 
     importances: list[AttributeImportance] = []
     ranges: dict[str, float] = {}
+    util_by_level: dict[tuple[str, str], float] = {}
     for name, levels in attributes:
         utilities = []
         for level in levels:
@@ -199,6 +250,9 @@ def analyze(
             else:
                 util, se = col_to_value[(name, level)]
                 is_ref = False
+            t, p, ci_low, ci_high = (
+                (None, None, None, None) if is_ref else _coef_stats(util, se)
+            )
             coefficients.append(
                 Coefficient(
                     attribute=name,
@@ -206,9 +260,14 @@ def analyze(
                     utility=util,
                     std_error=se,
                     is_reference=is_ref,
+                    t_stat=t,
+                    p_value=p,
+                    ci_low=ci_low,
+                    ci_high=ci_high,
                 )
             )
             utilities.append(util)
+            util_by_level[(name, level)] = util
         ranges[name] = max(utilities) - min(utilities)
 
     total_range = sum(ranges.values())
@@ -218,6 +277,10 @@ def analyze(
 
     rho_squared = (
         1.0 - (log_likelihood / null_ll) if null_ll != 0 else 0.0
+    )
+
+    wtp, price_slope = _willingness_to_pay(
+        attributes, util_by_level, price_attribute
     )
 
     return ConjointResults(
@@ -230,7 +293,62 @@ def analyze(
         rho_squared=rho_squared,
         num_observations=len(observations),
         converged=bool(result.success),
+        wtp=wtp,
+        price_attribute=price_attribute if price_slope is not None else None,
+        price_slope=price_slope,
+        currency=currency,
     )
+
+
+def _willingness_to_pay(
+    attributes: list[tuple[str, list[str]]],
+    util_by_level: dict[tuple[str, str], float],
+    price_attribute: str | None,
+) -> tuple[list[WTPEntry], float | None]:
+    """Convert part-worths into money units using the price attribute slope.
+
+    The marginal utility of money is the slope of utility vs. price across the
+    price attribute's (numeric) levels. WTP for any other level is then its
+    part-worth divided by that slope — the price change that offsets it.
+    """
+    if not price_attribute:
+        return [], None
+
+    price_levels = next(
+        (lvls for name, lvls in attributes if name == price_attribute), None
+    )
+    if not price_levels:
+        return [], None
+
+    points = [
+        (parse_price(level), util_by_level.get((price_attribute, level), 0.0))
+        for level in price_levels
+    ]
+    points = [(x, u) for x, u in points if x is not None]
+    if len({x for x, _ in points}) < 2:
+        return [], None  # need at least two distinct numeric prices
+
+    xs = np.array([x for x, _ in points])
+    us = np.array([u for _, u in points])
+    slope = float(np.polyfit(xs, us, 1)[0])
+    if slope == 0 or not np.isfinite(slope):
+        return [], None
+
+    wtp: list[WTPEntry] = []
+    for name, levels in attributes:
+        if name == price_attribute:
+            continue
+        for level in levels:
+            util = util_by_level.get((name, level), 0.0)
+            wtp.append(
+                WTPEntry(
+                    attribute=name,
+                    level=level,
+                    wtp=util / -slope,
+                    is_reference=(util == 0.0 and level == levels[0]),
+                )
+            )
+    return wtp, slope
 
 
 def predict_shares(

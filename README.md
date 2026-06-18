@@ -1,24 +1,32 @@
 # ☀ Sunshine
 
-A self-contained survey tool for **Choice-Based Conjoint (CBC) analysis** with
-participant email invitations. Build a study, auto-generate the choice design,
-invite respondents by email, collect their choices through a web survey, and
-estimate part-worth utilities and attribute importance — all in one FastAPI app.
+A self-contained survey tool with participant email invitations and two pricing
+research methods: **Choice-Based Conjoint (CBC)** analysis and the
+**Van Westendorp Price Sensitivity Meter**. Build a study, invite respondents by
+email, collect responses through a web survey, and get the analysis — all in one
+FastAPI app.
 
 ## What it does
 
-- **Design a study** — define attributes (e.g. *Price*, *Brand*, *Size*) and
-  their levels.
-- **Auto-generate a CBC design** — randomized choice tasks with a configurable
-  number of options per task and an optional "None of these" alternative.
+- **Two survey types**
+  - **Choice-Based Conjoint** — define attributes (e.g. *Price*, *Brand*,
+    *Size*) and levels, auto-generate a randomized choice design (configurable
+    options per task, optional "None of these"), and present choice tasks.
+  - **Van Westendorp** — respondents answer the four classic price questions;
+    the tool computes the Optimal Price Point (OPP), Indifference Price (IPP),
+    and the acceptable price range (PMC–PME), with a curve chart.
 - **Invite participants by email** — each respondent gets a unique survey link.
   Works with any SMTP provider, or runs in a no-credentials *console mode* for
   local development.
-- **Collect responses** — a clean, mobile-friendly web survey presents one
-  choice task at a time.
-- **Analyze** — aggregate **multinomial logit (MNL)** estimation produces
-  part-worth utilities (with standard errors), relative attribute importance,
-  and model fit (McFadden pseudo-R²). Includes a share-of-preference simulator.
+- **Conjoint analysis** — aggregate **multinomial logit (MNL)** estimation of
+  part-worth utilities with **significance stats** (std. errors, t, p, 95% CI),
+  relative attribute importance, and model fit (McFadden pseudo-R²).
+  - **Willingness-to-pay** — money value of each level, derived from a numeric
+    price attribute.
+  - **Market simulator** — define competing products and see predicted
+    share-of-preference.
+- **Admin authentication** — the researcher UI is protected by HTTP Basic Auth
+  (enabled by setting `ADMIN_PASSWORD`). Respondent survey links stay public.
 
 ## Quick start
 
@@ -38,20 +46,23 @@ uvicorn app.main:app --reload
 ### See it with sample data
 
 ```bash
-python -m scripts.seed_demo     # creates a demo study + 60 simulated responses
-# then open the printed /surveys/<id>/results URL
+python -m scripts.seed_demo     # creates a conjoint + a Van Westendorp demo,
+                                # each with 60 simulated responses
+# then open the printed /surveys/<id>/results URLs
 ```
 
-## How to run a real study
+## How to run a study
 
-1. **Create a survey** on the home page.
-2. **Add attributes & levels** (each attribute needs at least two levels).
-3. **Set the design** — number of choice tasks, options per task, and whether to
-   include a "None" option — then **Generate design**.
-4. **Add participants** (paste emails) and click **Send invitations**.
-5. Respondents complete the survey via their unique link.
-6. Open **View analysis** for utilities and importance. **Close** the survey
-   when you're done collecting.
+1. **Create a survey** on the home page — choose **Conjoint** or **Van
+   Westendorp** and a currency.
+2. **Conjoint only:** add attributes & levels (each needs 2+ levels), set the
+   design (tasks, options per task, optional "None", and which attribute is the
+   *price* attribute for WTP), then **Generate design**. Van Westendorp needs no
+   design step and is ready immediately.
+3. **Add participants** (paste emails) and click **Send invitations**.
+4. Respondents complete the survey via their unique link.
+5. Open **View analysis** for results. Conjoint surveys also have a **Market
+   simulator**. **Close** the survey when you're done collecting.
 
 ## Email configuration
 
@@ -68,41 +79,65 @@ Set these in `.env` (see `.env.example`):
 
 Works with Gmail, SendGrid, Mailgun, Amazon SES, etc. via standard SMTP.
 
+## Admin authentication
+
+The researcher/admin UI uses HTTP Basic Auth, enforced **only when
+`ADMIN_PASSWORD` is set** (otherwise the admin UI is open, convenient for local
+development). Respondent survey links (`/survey/<token>`) and `/healthz` are
+always public.
+
+| Variable | Purpose |
+| --- | --- |
+| `ADMIN_USER` | Admin username (default `admin`). |
+| `ADMIN_PASSWORD` | Admin password. **Empty = auth disabled.** Set it to require login. |
+
 ## The methodology, briefly
 
-Each respondent completes several **choice tasks**; in each they pick the option
-they prefer from a set of profiles (plus an optional "None"). We dummy-code each
-profile's attribute levels (the first level of each attribute is the reference,
-fixed at utility 0) and fit a conditional/multinomial logit model by maximum
-likelihood:
+**Conjoint.** Each respondent completes several **choice tasks**; in each they
+pick the profile they prefer (plus an optional "None"). We dummy-code each
+profile's levels (the first level of each attribute is the reference, fixed at
+utility 0) and fit a conditional/multinomial logit model by maximum likelihood:
 
 ```
 P(choose j) = exp(xⱼ·β) / Σₖ exp(xₖ·β)
 ```
 
-The estimated coefficients are **part-worth utilities**. **Attribute importance**
-is the utility range of each attribute as a share of the total range. Standard
-errors come from the inverse observed-information matrix.
+The coefficients are **part-worth utilities**; standard errors come from the
+inverse observed-information matrix, with t/p/CI derived from them. **Attribute
+importance** is each attribute's utility range as a share of the total.
+**Willingness-to-pay** divides a level's part-worth by the marginal utility of
+money (the slope of utility vs. a numeric price attribute). The **simulator**
+turns utilities into logit shares for a set of competing profiles.
 
 This is the standard *aggregate* CBC estimator. Individual-level estimation
 (hierarchical Bayes) and D-optimal/balanced designs are natural next steps.
+
+**Van Westendorp.** Each respondent gives four prices (too cheap / cheap /
+expensive / too expensive). Cumulative curves over the price range cross at the
+Optimal Price Point (too cheap × too expensive), the Indifference Price (cheap ×
+expensive), and the bounds of the acceptable range — PMC (too cheap × expensive)
+and PME (too expensive × cheap).
 
 ## Project layout
 
 ```
 app/
-  main.py          FastAPI app + routes wiring
-  config.py        Settings (env / .env)
-  database.py      SQLAlchemy engine & session
-  models.py        ORM: Survey, Attribute, Level, Task, Concept, Participant, Response
-  design.py        CBC choice-design generation
-  analysis.py      Multinomial-logit estimation, importance, share simulation
-  email_utils.py   SMTP delivery + console/dev fallback
-  services.py      Bridges ORM <-> engine
-  routes/          admin.py (researcher UI), survey.py (respondent UI)
-  templates/       Jinja2 HTML
-scripts/seed_demo.py   Demo data with simulated responses
-tests/             Design, analysis (recovers known utilities), and end-to-end tests
+  main.py            FastAPI app + routes wiring + auth gating
+  config.py          Settings (env / .env)
+  auth.py            HTTP Basic Auth dependency for the admin UI
+  database.py        SQLAlchemy engine & session
+  models.py          ORM: Survey, Attribute, Level, Task, Concept, Participant,
+                     Response, PricePerception
+  design.py          CBC choice-design generation
+  analysis.py        MNL estimation, importance, significance, WTP, share simulation
+  van_westendorp.py  Price Sensitivity Meter curves & intersection points
+  email_utils.py     SMTP delivery + console/dev fallback
+  services.py        Bridges ORM <-> engines
+  routes/            admin.py (researcher UI), survey.py (respondent UI)
+  templates/         Jinja2 HTML
+scripts/seed_demo.py   Conjoint + Van Westendorp demo data with simulated responses
+tests/                 Design, analysis (recovers known utilities & price points),
+                       auth, and end-to-end tests
 ```
 
 ## Tests
@@ -112,5 +147,6 @@ pytest
 ```
 
 The analysis tests simulate choices from known preferences and confirm the
-estimator recovers them; the app test drives the full create → invite → respond
-→ analyze flow.
+estimator recovers them (and that Van Westendorp recovers a known price point);
+the app tests drive the full create → invite → respond → analyze flow for both
+survey types, plus admin auth and the market simulator.

@@ -22,6 +22,7 @@
         <p class="notice">Estimation did not fully converge — gather more
           responses for stable estimates.</p>
       {% endif %}
+      <p><a class="btn secondary" href="/surveys/{{ survey.id }}/simulator">Open market simulator →</a></p>
     </div>
 
     <div class="card">
@@ -46,17 +47,24 @@
     <div class="card">
       <h2>Part-worth utilities</h2>
       <p class="muted">Higher utility = more preferred. Each attribute's first
-        level is the reference (fixed at 0).</p>
+        level is the reference (fixed at 0). ★ marks statistically significant
+        levels (p &lt; 0.05).</p>
       {% for attribute, coefs in grouped.items() %}
         <h3>{{ attribute }}</h3>
         <table>
-          <thead><tr><th>Level</th><th>Utility</th><th>Std. error</th></tr></thead>
+          <thead><tr><th>Level</th><th>Utility</th><th>Std. err</th>
+            <th>t</th><th>p</th><th>95% CI</th></tr></thead>
           <tbody>
             {% for c in coefs %}
               <tr>
-                <td>{{ c.level }}{% if c.is_reference %} <small class="hint">(reference)</small>{% endif %}</td>
+                <td>{{ c.level }}
+                  {% if c.is_reference %}<small class="hint">(reference)</small>
+                  {% elif c.significant %}★{% endif %}</td>
                 <td>{{ "%+.3f"|format(c.utility) }}</td>
                 <td>{% if c.is_reference %}—{% else %}{{ "%.3f"|format(c.std_error) }}{% endif %}</td>
+                <td>{% if c.t_stat is not none %}{{ "%.2f"|format(c.t_stat) }}{% else %}—{% endif %}</td>
+                <td>{% if c.p_value is not none %}{{ "%.3f"|format(c.p_value) }}{% else %}—{% endif %}</td>
+                <td>{% if c.ci_low is not none %}[{{ "%+.2f"|format(c.ci_low) }}, {{ "%+.2f"|format(c.ci_high) }}]{% else %}—{% endif %}</td>
               </tr>
             {% endfor %}
           </tbody>
@@ -73,5 +81,28 @@
         </table>
       {% endif %}
     </div>
+
+    {% if results.price_attribute %}
+    <div class="card">
+      <h2>Willingness to pay</h2>
+      <p class="muted">Money value of each level relative to its attribute's
+        reference, using <strong>{{ results.price_attribute }}</strong> as the
+        price scale (≈ {{ "%.4f"|format(results.price_slope) }} utility per
+        {{ results.currency }}1).</p>
+      {% for attribute, entries in wtp_grouped.items() %}
+        <h3>{{ attribute }}</h3>
+        <table>
+          <tbody>
+            {% for e in entries %}
+              <tr>
+                <td style="width:60%;">{{ e.level }}{% if e.is_reference %} <small class="hint">(reference)</small>{% endif %}</td>
+                <td>{{ results.currency }}{{ "%+.2f"|format(e.wtp) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endfor %}
+    </div>
+    {% endif %}
   {% endif %}
 {% endblock %}

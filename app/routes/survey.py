@@ -7,9 +7,10 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import van_westendorp
 from ..database import get_db
-from ..models import Participant, ParticipantStatus, SurveyStatus
-from ..services import record_completion
+from ..models import Participant, ParticipantStatus, SurveyStatus, SurveyType
+from ..services import record_completion, record_price_perception
 from ..templating import templates
 
 router = APIRouter()
@@ -35,6 +36,13 @@ def take_survey(token: str, request: Request, db: Session = Depends(get_db)):
     if survey.status != SurveyStatus.active:
         return templates.TemplateResponse(
             request, "survey/closed.html", {"reason": "closed", "survey": survey}
+        )
+
+    if survey.survey_type == SurveyType.van_westendorp:
+        return templates.TemplateResponse(
+            request,
+            "survey/van_westendorp.html",
+            {"survey": survey, "participant": participant},
         )
 
     # Build display data: each task with its concepts and per-attribute rows.
@@ -78,6 +86,10 @@ async def submit_survey(token: str, request: Request, db: Session = Depends(get_
         )
 
     form = await request.form()
+
+    if survey.survey_type == SurveyType.van_westendorp:
+        return _submit_van_westendorp(request, db, participant, survey, form)
+
     # Valid concept ids per task, to guard against tampered submissions.
     valid_by_task = {
         task.id: {c.id for c in task.concepts} for task in survey.tasks
@@ -131,3 +143,43 @@ async def submit_survey(token: str, request: Request, db: Session = Depends(get_
 
     record_completion(db, participant, choices)
     return RedirectResponse(f"/survey/{token}", status_code=303)
+
+
+def _submit_van_westendorp(request, db, participant, survey, form):
+    """Validate and store a Van Westendorp price-perception response."""
+    fields = ("too_cheap", "cheap", "expensive", "too_expensive")
+    values: dict[str, float] = {}
+    error = None
+    for name in fields:
+        raw = form.get(name)
+        try:
+            values[name] = float(str(raw).replace(",", "").strip())
+        except (TypeError, ValueError):
+            error = "Please enter a price for all four questions."
+            break
+
+    if error is None:
+        error = van_westendorp.validate_response(
+            values["too_cheap"], values["cheap"],
+            values["expensive"], values["too_expensive"],
+        )
+
+    if error is not None:
+        return templates.TemplateResponse(
+            request,
+            "survey/van_westendorp.html",
+            {
+                "survey": survey,
+                "participant": participant,
+                "error": error,
+                "values": {k: form.get(k) for k in fields},
+            },
+            status_code=400,
+        )
+
+    record_price_perception(
+        db, participant,
+        too_cheap=values["too_cheap"], cheap=values["cheap"],
+        expensive=values["expensive"], too_expensive=values["too_expensive"],
+    )
+    return RedirectResponse(f"/survey/{participant.token}", status_code=303)

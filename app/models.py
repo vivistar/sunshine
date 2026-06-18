@@ -18,6 +18,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -35,6 +36,11 @@ def _utcnow() -> datetime:
 
 def _new_token() -> str:
     return secrets.token_urlsafe(24)
+
+
+class SurveyType(str, enum.Enum):
+    conjoint = "conjoint"              # Choice-Based Conjoint
+    van_westendorp = "van_westendorp"  # Price Sensitivity Meter
 
 
 class SurveyStatus(str, enum.Enum):
@@ -55,14 +61,22 @@ class Survey(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
+    survey_type: Mapped[SurveyType] = mapped_column(
+        Enum(SurveyType), default=SurveyType.conjoint, nullable=False
+    )
     status: Mapped[SurveyStatus] = mapped_column(
         Enum(SurveyStatus), default=SurveyStatus.draft, nullable=False
     )
+    currency: Mapped[str] = mapped_column(String(8), default="$")
 
-    # Design parameters
+    # Conjoint design parameters
     num_tasks: Mapped[int] = mapped_column(Integer, default=8)
     alternatives_per_task: Mapped[int] = mapped_column(Integer, default=3)
     include_none: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Attribute treated as price for willingness-to-pay (optional).
+    price_attribute_id: Mapped[int | None] = mapped_column(
+        ForeignKey("attributes.id", ondelete="SET NULL"), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
@@ -70,6 +84,10 @@ class Survey(Base):
         back_populates="survey",
         cascade="all, delete-orphan",
         order_by="Attribute.position",
+        foreign_keys="Attribute.survey_id",
+    )
+    price_attribute: Mapped["Attribute | None"] = relationship(
+        foreign_keys=[price_attribute_id], post_update=True
     )
     tasks: Mapped[list["Task"]] = relationship(
         back_populates="survey",
@@ -91,7 +109,9 @@ class Attribute(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     position: Mapped[int] = mapped_column(Integer, default=0)
 
-    survey: Mapped[Survey] = relationship(back_populates="attributes")
+    survey: Mapped[Survey] = relationship(
+        back_populates="attributes", foreign_keys=[survey_id]
+    )
     levels: Mapped[list["Level"]] = relationship(
         back_populates="attribute",
         cascade="all, delete-orphan",
@@ -192,6 +212,11 @@ class Participant(Base):
     responses: Mapped[list["Response"]] = relationship(
         back_populates="participant", cascade="all, delete-orphan"
     )
+    price_perception: Mapped["PricePerception | None"] = relationship(
+        back_populates="participant",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
 
 class Response(Base):
@@ -215,3 +240,23 @@ class Response(Base):
     participant: Mapped[Participant] = relationship(back_populates="responses")
     task: Mapped[Task] = relationship()
     chosen_concept: Mapped[Concept] = relationship()
+
+
+class PricePerception(Base):
+    """A respondent's four Van Westendorp price points (in survey currency)."""
+
+    __tablename__ = "price_perceptions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    participant_id: Mapped[int] = mapped_column(
+        ForeignKey("participants.id", ondelete="CASCADE"), unique=True
+    )
+    too_cheap: Mapped[float] = mapped_column(Float, nullable=False)
+    cheap: Mapped[float] = mapped_column(Float, nullable=False)
+    expensive: Mapped[float] = mapped_column(Float, nullable=False)
+    too_expensive: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    participant: Mapped[Participant] = relationship(
+        back_populates="price_perception"
+    )

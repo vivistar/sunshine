@@ -108,3 +108,47 @@ def test_empty_observations_raise():
     import pytest
     with pytest.raises(ValueError):
         analyze(ATTRS, [], include_none=True)
+
+
+def test_significance_stats_present():
+    obs = _simulate(num_respondents=300)
+    results = analyze(ATTRS, obs, include_none=True)
+    for c in results.coefficients:
+        if c.is_reference:
+            assert c.t_stat is None and c.p_value is None
+        else:
+            assert c.t_stat is not None
+            assert 0.0 <= c.p_value <= 1.0
+            assert c.ci_low < c.utility < c.ci_high
+    # The strong price effect should be statistically significant.
+    expensive = next(
+        c for c in results.coefficients if (c.attribute, c.level) == ("Price", "$30")
+    )
+    assert expensive.significant
+
+
+def test_willingness_to_pay():
+    obs = _simulate(num_respondents=400)
+    results = analyze(ATTRS, obs, include_none=True,
+                      price_attribute="Price", currency="$")
+
+    # Price scale was recovered, slope is negative (more price -> less utility).
+    assert results.price_attribute == "Price"
+    assert results.price_slope is not None and results.price_slope < 0
+
+    wtp = {(e.attribute, e.level): e.wtp for e in results.wtp}
+    # Price itself is excluded from WTP entries.
+    assert not any(attr == "Price" for attr, _ in wtp)
+    # A preferred level (Globex, true utility +0.5) commands positive WTP;
+    # the larger size is worth more than the smaller.
+    assert wtp[("Brand", "Globex")] > 0
+    assert wtp[("Size", "L")] > wtp[("Size", "S")]
+
+
+def test_no_wtp_without_numeric_price():
+    obs = _simulate(num_respondents=100)
+    # "Brand" levels are not numeric -> no slope, no WTP.
+    results = analyze(ATTRS, obs, include_none=True, price_attribute="Brand")
+    assert results.wtp == []
+    assert results.price_slope is None
+    assert results.price_attribute is None

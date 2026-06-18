@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ survey.name }}{% endblock %}
+{% block content %}
+  <h1>{{ survey.name }}</h1>
+  {% if survey.description %}<p class="muted">{{ survey.description }}</p>{% endif %}
+  <p class="muted">Thinking about this product, please enter a price
+    ({{ survey.currency }}) for each question below.</p>
+
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  <form method="post" action="/survey/{{ participant.token }}">
+    <div class="card">
+      <label for="too_cheap">At what price would the product be
+        <strong>so cheap</strong> you'd doubt its quality?</label>
+      <input type="number" step="any" min="0" id="too_cheap" name="too_cheap" required
+             value="{{ (values.too_cheap if values else '') or '' }}"
+             placeholder="{{ survey.currency }}">
+
+      <label for="cheap">At what price would it be a <strong>bargain</strong> —
+        great value for the money?</label>
+      <input type="number" step="any" min="0" id="cheap" name="cheap" required
+             value="{{ (values.cheap if values else '') or '' }}"
+             placeholder="{{ survey.currency }}">
+
+      <label for="expensive">At what price would it start to feel
+        <strong>expensive</strong>, but you'd still consider it?</label>
+      <input type="number" step="any" min="0" id="expensive" name="expensive" required
+             value="{{ (values.expensive if values else '') or '' }}"
+             placeholder="{{ survey.currency }}">
+
+      <label for="too_expensive">At what price would it be
+        <strong>too expensive</strong> to consider?</label>
+      <input type="number" step="any" min="0" id="too_expensive" name="too_expensive" required
+             value="{{ (values.too_expensive if values else '') or '' }}"
+             placeholder="{{ survey.currency }}">
+    </div>
+    <p><button type="submit">Submit my answers</button></p>
+  </form>
+{% endblock %}
