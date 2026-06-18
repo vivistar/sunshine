@@ -23,11 +23,15 @@ class Settings(BaseSettings):
     smtp_from: str = "Sunshine Surveys <no-reply@sunshine.local>"
     smtp_use_tls: bool = True
 
-    # Admin (researcher) HTTP Basic Auth. Enforcement is enabled only when
-    # admin_password is non-empty; otherwise the admin UI is open (handy for
-    # local development). Respondent survey links are always public.
+    # Admin (researcher) login. Enforcement is enabled only when admin_password
+    # is non-empty; otherwise the admin UI is open (handy for local
+    # development). Respondent survey links are always public.
     admin_user: str = "admin"
     admin_password: str = ""
+
+    # Secret used to sign the admin session cookie. Optional: when empty a
+    # stable secret is derived from admin_password (see auth.session_secret).
+    secret_key: str = ""
 
     @property
     def email_enabled(self) -> bool:
@@ -36,7 +40,7 @@ class Settings(BaseSettings):
 
     @property
     def auth_enabled(self) -> bool:
-        """True when admin Basic Auth should be enforced."""
+        """True when admin login should be enforced."""
         return bool(self.admin_password)
 
 
