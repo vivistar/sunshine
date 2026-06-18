@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}{{ survey.name }} · Sunshine{% endblock %}
+{% block content %}
+  <p><a href="/">← All surveys</a></p>
+  <h1>{{ survey.name }}
+    <span class="pill {{ survey.status.value }}">{{ survey.status.value }}</span></h1>
+  <p class="muted">
+    {% if survey.survey_type == SurveyType.van_westendorp %}Van Westendorp price sensitivity{% else %}Choice-Based Conjoint{% endif %}
+    {% if survey.description %} · {{ survey.description }}{% endif %}
+  </p>
+
+  {% if survey.survey_type == SurveyType.conjoint %}
+  <!-- Attributes (conjoint only) -->
+  <div class="card">
+    <h2>1 · Attributes &amp; levels</h2>
+    <p class="muted">Define what varies across the product profiles respondents
+      will compare. Each attribute needs at least two levels.</p>
+    {% if survey.attributes %}
+      <table>
+        <thead><tr><th>Attribute</th><th>Levels</th><th></th></tr></thead>
+        <tbody>
+          {% for a in survey.attributes %}
+            <tr>
+              <td><strong>{{ a.name }}</strong>
+                {% if survey.price_attribute_id == a.id %}<span class="pill active">price</span>{% endif %}</td>
+              <td>{{ a.levels | map(attribute="value") | join(", ") }}</td>
+              <td>
+                <form class="inline" method="post"
+                      action="/surveys/{{ survey.id }}/attributes/{{ a.id }}/delete"
+                      onsubmit="return confirm('Delete this attribute?');">
+                  <button class="btn danger" type="submit">Delete</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">No attributes yet.</p>
+    {% endif %}
+
+    <form method="post" action="/surveys/{{ survey.id }}/attributes">
+      <div class="row">
+        <div>
+          <label for="attr-name">Attribute name</label>
+          <input type="text" id="attr-name" name="name" required placeholder="e.g. Price">
+        </div>
+        <div>
+          <label for="attr-levels">Levels <small class="hint">(one per line or comma-separated)</small></label>
+          <textarea id="attr-levels" name="levels" required placeholder="$8/mo&#10;$12/mo&#10;$16/mo"></textarea>
+        </div>
+      </div>
+      <p><button type="submit">Add attribute</button></p>
+    </form>
+  </div>
+
+  <!-- Design (conjoint only) -->
+  <div class="card">
+    <h2>2 · Choice design</h2>
+    <form method="post" action="/surveys/{{ survey.id }}/settings">
+      <div class="row">
+        <div>
+          <label for="num_tasks">Choice tasks</label>
+          <input type="number" id="num_tasks" name="num_tasks" min="1" max="50"
+                 value="{{ survey.num_tasks }}">
+        </div>
+        <div>
+          <label for="alts">Options per task</label>
+          <input type="number" id="alts" name="alternatives_per_task" min="2" max="8"
+                 value="{{ survey.alternatives_per_task }}">
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <label style="font-weight:400;">
+            <input type="checkbox" name="include_none" value="true"
+                   {% if survey.include_none %}checked{% endif %}>
+            Include a "None of these" option
+          </label>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="price_attr">Price attribute <small class="hint">(for willingness-to-pay)</small></label>
+          <select id="price_attr" name="price_attribute_id">
+            <option value="">— none —</option>
+            {% for a in survey.attributes %}
+              <option value="{{ a.id }}" {% if survey.price_attribute_id == a.id %}selected{% endif %}>{{ a.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="currency">Currency symbol</label>
+          <input type="text" id="currency" name="currency" value="{{ survey.currency }}" maxlength="8">
+        </div>
+        <div><label>&nbsp;</label><button class="secondary btn" type="submit">Save design settings</button></div>
+      </div>
+    </form>
+
+    <hr style="border:none;border-top:1px solid var(--line);">
+    {% if survey.tasks %}
+      <p>✅ Design generated: <strong>{{ survey.tasks | length }}</strong> tasks,
+        <strong>{{ survey.alternatives_per_task }}</strong> options each
+        {% if survey.include_none %}(plus a "None" option){% endif %}.</p>
+    {% else %}
+      <p class="muted">No design generated yet.</p>
+    {% endif %}
+    <form method="post" action="/surveys/{{ survey.id }}/generate"
+          onsubmit="return confirm('Generate (or regenerate) the design? This clears any existing responses.');">
+      <button type="submit" {% if not can_generate %}disabled{% endif %}>
+        {% if survey.tasks %}Regenerate design{% else %}Generate design{% endif %}
+      </button>
+      {% if not can_generate %}
+        <small class="hint">Add at least one attribute with 2+ levels first.</small>
+      {% endif %}
+    </form>
+  </div>
+  {% else %}
+  <!-- Van Westendorp setup -->
+  <div class="card">
+    <h2>1 · Price questions</h2>
+    <p class="muted">Respondents answer the four standard Van Westendorp price
+      questions about the product described above. No design step is needed —
+      just set the currency, add participants, and invite.</p>
+    <form method="post" action="/surveys/{{ survey.id }}/settings">
+      <div class="row">
+        <div>
+          <label for="currency">Currency symbol</label>
+          <input type="text" id="currency" name="currency" value="{{ survey.currency }}" maxlength="8">
+        </div>
+        <div><label>&nbsp;</label><button class="secondary btn" type="submit">Save</button></div>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
+  <!-- Participants -->
+  <div class="card">
+    <h2>{% if survey.survey_type == SurveyType.conjoint %}3{% else %}2{% endif %} · Participants</h2>
+    {% if not email_enabled %}
+      <p class="notice">Console email mode — invitations are saved to
+        <code>dev_outbox/</code>. Use each participant's link below to test.</p>
+    {% endif %}
+    {% if survey.participants %}
+      <p>{{ completed }} of {{ survey.participants | length }} completed.</p>
+      <table>
+        <thead><tr><th>Email</th><th>Status</th><th>Survey link</th></tr></thead>
+        <tbody>
+          {% for p in survey.participants %}
+            <tr>
+              <td>{{ p.email }}</td>
+              <td><span class="pill {% if p.status == ParticipantStatus.completed %}active{% else %}draft{% endif %}">{{ p.status.value }}</span></td>
+              <td><a href="{{ base_url }}/survey/{{ p.token }}">{{ base_url }}/survey/{{ p.token }}</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <form class="inline" method="post" action="/surveys/{{ survey.id }}/invite">
+        <button type="submit" {% if survey.status != SurveyStatus.active %}disabled{% endif %}>
+          ✉ Send invitations
+        </button>
+        {% if survey.status != SurveyStatus.active %}
+          <small class="hint">{% if survey.survey_type == SurveyType.conjoint %}Generate the design first.{% else %}Survey must be active.{% endif %}</small>
+        {% endif %}
+      </form>
+    {% else %}
+      <p class="muted">No participants yet.</p>
+    {% endif %}
+
+    <form method="post" action="/surveys/{{ survey.id }}/participants">
+      <label for="emails">Add participants <small class="hint">(emails, one per line or comma-separated)</small></label>
+      <textarea id="emails" name="emails" required placeholder="alice@example.com&#10;bob@example.com"></textarea>
+      <p><button class="secondary btn" type="submit">Add participants</button></p>
+    </form>
+  </div>
+
+  <!-- Results / status -->
+  <div class="card">
+    <h2>{% if survey.survey_type == SurveyType.conjoint %}4{% else %}3{% endif %} · Results &amp; status</h2>
+    <p>
+      <a class="btn" href="/surveys/{{ survey.id }}/results">View analysis →</a>
+      {% if survey.survey_type == SurveyType.conjoint %}
+        <a class="btn secondary" href="/surveys/{{ survey.id }}/simulator">Market simulator</a>
+      {% endif %}
+      {% if survey.status == SurveyStatus.active %}
+        <form class="inline" method="post" action="/surveys/{{ survey.id }}/close">
+          <button class="secondary btn" type="submit">Close survey</button>
+        </form>
+      {% elif survey.status == SurveyStatus.closed %}
+        <form class="inline" method="post" action="/surveys/{{ survey.id }}/reopen">
+          <button class="secondary btn" type="submit">Reopen survey</button>
+        </form>
+      {% endif %}
+    </p>
+  </div>
+{% endblock %}

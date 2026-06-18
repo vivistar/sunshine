@@ -1,0 +1,25 @@
+# Keep the build context small and the image clean.
+.git
+.gitignore
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.coverage
+htmlcov
+
+# Local-only data and secrets (never bake these into the image)
+.env
+*.db
+*.sqlite3
+dev_outbox
+
+# Not needed at runtime
+tests
+README.md
+.env.example
+docker-compose.yml
+Procfile

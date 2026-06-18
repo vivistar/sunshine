@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+.font-display {
+  font-family: 'Playfair Display', serif;
+}
+
+/* Gradient drift — scales the background so it has room to pan */
+.gradient-animated {
+  background-size: 300% 300%;
+  animation: gradientDrift 7s ease infinite;
+}
+
+@keyframes gradientDrift {
+  0%   { background-position: 0% 50%; }
+  33%  { background-position: 100% 0%; }
+  66%  { background-position: 50% 100%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Soft floating orbs */
+.orb {
+  border-radius: 50%;
+  filter: blur(80px);
+  animation: orbFloat var(--dur, 20s) ease-in-out infinite alternate;
+  opacity: 0.25;
+}
+
+@keyframes orbFloat {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(var(--tx, 40px), var(--ty, -30px)) scale(1.08); }
+  100% { transform: translate(var(--tx2, -20px), var(--ty2, 20px)) scale(0.96); }
+}

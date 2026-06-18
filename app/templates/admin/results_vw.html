@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Results · {{ survey.name }}{% endblock %}
+{% block content %}
+  <p><a href="/surveys/{{ survey.id }}">← Back to survey</a></p>
+  <h1>Price sensitivity · {{ survey.name }}</h1>
+
+  {% if error %}
+    <div class="error">{{ error }}</div>
+  {% else %}
+    {% set cur = results.currency %}
+    <div class="card">
+      <div class="row">
+        <div><strong>{{ results.num_responses }}</strong><br>
+          <small class="muted">responses</small></div>
+        <div><strong>{{ cur }}{{ "%.2f"|format(results.opp) if results.opp is not none else "—" }}</strong><br>
+          <small class="muted">Optimal Price Point (OPP)</small></div>
+        <div><strong>{{ cur }}{{ "%.2f"|format(results.ipp) if results.ipp is not none else "—" }}</strong><br>
+          <small class="muted">Indifference Price (IPP)</small></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Range of acceptable prices</h2>
+      {% if results.pmc is not none and results.pme is not none %}
+        <p style="font-size:20px;">
+          <strong>{{ cur }}{{ "%.2f"|format(results.pmc) }}</strong>
+          &nbsp;—&nbsp;
+          <strong>{{ cur }}{{ "%.2f"|format(results.pme) }}</strong>
+        </p>
+        <p class="muted">Bounded by the Point of Marginal Cheapness (PMC) below
+          and the Point of Marginal Expensiveness (PME) above.</p>
+      {% else %}
+        <p class="muted">Not enough crossing data to determine the range yet.</p>
+      {% endif %}
+      <table>
+        <thead><tr><th>Point</th><th>What it means</th><th>Price</th></tr></thead>
+        <tbody>
+          {% for pt in results.points %}
+            <tr>
+              <td><strong>{{ pt.name }}</strong></td>
+              <td>{{ pt.label }}</td>
+              <td>{% if pt.price is not none %}{{ cur }}{{ "%.2f"|format(pt.price) }}{% else %}—{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if results.grid|length > 1 %}
+    {% set gmin = results.grid[0] %}
+    {% set gmax = results.grid[-1] %}
+    {% set span = (gmax - gmin) if (gmax - gmin) > 0 else 1 %}
+    {% macro poly(curve) %}{% for i in range(results.grid|length) %}{{ "%.1f,%.1f "|format(40 + (results.grid[i] - gmin) / span * 550, 10 + (100 - curve[i]) / 100 * 260) }}{% endfor %}{% endmacro %}
+    {% macro xc(price) %}{{ "%.1f"|format(40 + (price - gmin) / span * 550) }}{% endmacro %}
+    <div class="card">
+      <h2>Price sensitivity curves</h2>
+      <svg viewBox="0 0 600 300" width="100%" style="max-width:600px; border:1px solid var(--line); background:#fff;">
+        <!-- axes -->
+        <line x1="40" y1="10" x2="40" y2="270" stroke="#ccc"/>
+        <line x1="40" y1="270" x2="590" y2="270" stroke="#ccc"/>
+        <text x="6" y="16" font-size="10" fill="#888">100%</text>
+        <text x="12" y="272" font-size="10" fill="#888">0%</text>
+        <text x="40" y="286" font-size="10" fill="#888">{{ cur }}{{ "%.0f"|format(gmin) }}</text>
+        <text x="560" y="286" font-size="10" fill="#888">{{ cur }}{{ "%.0f"|format(gmax) }}</text>
+        <!-- acceptable range band -->
+        {% if results.pmc is not none and results.pme is not none %}
+          <rect x="{{ xc(results.pmc) }}" y="10"
+                width="{{ "%.1f"|format((results.pme - results.pmc) / span * 550) }}"
+                height="260" fill="#e8a13a" opacity="0.10"/>
+        {% endif %}
+        <!-- curves -->
+        <polyline fill="none" stroke="#2e7d32" stroke-width="2" points="{{ poly(results.too_cheap) }}"/>
+        <polyline fill="none" stroke="#66bb6a" stroke-width="2" stroke-dasharray="4 3" points="{{ poly(results.cheap) }}"/>
+        <polyline fill="none" stroke="#ef9a9a" stroke-width="2" stroke-dasharray="4 3" points="{{ poly(results.expensive) }}"/>
+        <polyline fill="none" stroke="#c62828" stroke-width="2" points="{{ poly(results.too_expensive) }}"/>
+      </svg>
+      <p class="muted" style="font-size:13px;">
+        <span style="color:#2e7d32;">█</span> too cheap &nbsp;
+        <span style="color:#66bb6a;">█</span> cheap (bargain) &nbsp;
+        <span style="color:#ef9a9a;">█</span> expensive &nbsp;
+        <span style="color:#c62828;">█</span> too expensive &nbsp;·&nbsp;
+        shaded band = acceptable price range
+      </p>
+    </div>
+    {% endif %}
+  {% endif %}
+{% endblock %}

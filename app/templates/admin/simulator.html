@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Simulator · {{ survey.name }}{% endblock %}
+{% block content %}
+  <p><a href="/surveys/{{ survey.id }}">← Back to survey</a></p>
+  <h1>Market simulator · {{ survey.name }}</h1>
+  <p class="muted">Define competing products and see the predicted share of
+    preference, using the estimated part-worth utilities.</p>
+
+  {% if error %}
+    <div class="error">{{ error }}</div>
+  {% else %}
+    <form method="post" action="/surveys/{{ survey.id }}/simulator">
+      <input type="hidden" name="n_products" value="{{ n_products }}">
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Attribute</th>
+              {% for p in range(n_products) %}<th>Product {{ p + 1 }}</th>{% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for attr_name, levels in attributes %}
+              <tr>
+                <td><strong>{{ attr_name }}</strong></td>
+                {% for p in range(n_products) %}
+                  <td>
+                    <select name="p{{ p }}_{{ attr_name }}">
+                      {% for lvl in levels %}
+                        <option value="{{ lvl }}" {% if profiles[p][attr_name] == lvl %}selected{% endif %}>{{ lvl }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+            {% if shares is not none %}
+              <tr>
+                <td><strong>Predicted share</strong></td>
+                {% for s in shares %}
+                  <td><strong>{{ "%.1f"|format(s * 100) }}%</strong></td>
+                {% endfor %}
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+        <p><button type="submit">Compute shares</button></p>
+      </div>
+    </form>
+    {% if shares is not none %}
+      <div class="card">
+        <h2>Share of preference</h2>
+        {% for s in shares %}
+          <div style="margin-bottom:8px;">
+            <div class="muted">Product {{ loop.index }}</div>
+            <div class="bar"><span style="width: {{ s * 100 }}%;"></span></div>
+            <div style="text-align:right;">{{ "%.1f"|format(s * 100) }}%</div>
+          </div>
+        {% endfor %}
+        <p class="muted">Shares are computed among the {{ n_products }} products
+          above (a closed competitive set).</p>
+      </div>
+    {% endif %}
+  {% endif %}
+{% endblock %}
