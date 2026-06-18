@@ -51,6 +51,29 @@ python -m scripts.seed_demo     # creates a conjoint + a Van Westendorp demo,
 # then open the printed /surveys/<id>/results URLs
 ```
 
+## Deploy (containers)
+
+Sunshine ships with a `Dockerfile`, `docker-compose.yml`, and `Procfile` for
+container hosts (Render, Railway, Fly.io, plain Docker). The app is stateful —
+its SQLite database lives on a mounted volume — so a container host with a
+persistent disk fits better than serverless.
+
+```bash
+# Local container, with a named volume for the database
+docker compose up --build
+# open http://localhost:8000
+```
+
+The image runs `uvicorn` and honors `$PORT` (set by most platforms). The
+database defaults to `sqlite:////data/sunshine.db`, so mount a persistent volume
+at `/data`. For production also set:
+
+- `BASE_URL` — your public URL (used to build invitation links).
+- `ADMIN_PASSWORD` — enables admin login (see below).
+- `SMTP_*` — to send real invitation email (otherwise console mode).
+
+For heavier traffic, point `DATABASE_URL` at a hosted Postgres instead of SQLite.
+
 ## How to run a study
 
 1. **Create a survey** on the home page — choose **Conjoint** or **Van

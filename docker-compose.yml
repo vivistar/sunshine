@@ -1,0 +1,28 @@
+# Local container run with a persistent volume for the SQLite database.
+#
+#   docker compose up --build
+#   open http://localhost:8000
+#
+# To load secrets/config from a .env file:  docker compose --env-file .env up
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: sqlite:////data/sunshine.db
+      BASE_URL: ${BASE_URL:-http://localhost:8000}
+      # Set ADMIN_PASSWORD to require admin login; SMTP_* to send real email.
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-Sunshine Surveys <no-reply@sunshine.local>}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+    volumes:
+      - sunshine-data:/data
+
+volumes:
+  sunshine-data:
