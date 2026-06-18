@@ -119,7 +119,7 @@ def seed(num_participants: int = 60, seed: int = 7) -> None:
         db.commit()
 
         print(f"Seeded conjoint survey id={survey.id} with {num_participants} responses.")
-        print(f"  Results: {settings.base_url}/surveys/{survey.id}/results")
+        print(f"  Results: {settings.effective_base_url}/surveys/{survey.id}/results")
 
         # --- Van Westendorp demo -------------------------------------------
         vw = Survey(
@@ -152,7 +152,7 @@ def seed(num_participants: int = 60, seed: int = 7) -> None:
             )
         db.commit()
         print(f"Seeded Van Westendorp survey id={vw.id} with {num_participants} responses.")
-        print(f"  Results: {settings.base_url}/surveys/{vw.id}/results")
+        print(f"  Results: {settings.effective_base_url}/surveys/{vw.id}/results")
 
 
 if __name__ == "__main__":

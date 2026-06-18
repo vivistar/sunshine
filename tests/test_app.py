@@ -146,6 +146,23 @@ def test_admin_login_flow_when_password_set(monkeypatch):
     assert c.get("/survey/nope").status_code == 404  # not a redirect to login
 
 
+def test_effective_base_url_auto_detect():
+    from app.config import Settings
+
+    # Explicit BASE_URL wins (and a trailing slash is trimmed).
+    s = Settings(base_url="https://custom.example/",
+                 render_external_url="https://x.onrender.com")
+    assert s.effective_base_url == "https://custom.example"
+
+    # Falls back to RENDER_EXTERNAL_URL when BASE_URL is unset.
+    s = Settings(base_url="", render_external_url="https://sunshine-zzrc.onrender.com")
+    assert s.effective_base_url == "https://sunshine-zzrc.onrender.com"
+
+    # Localhost default when neither is configured.
+    s = Settings(base_url="", render_external_url="")
+    assert s.effective_base_url == "http://localhost:8000"
+
+
 def test_van_westendorp_full_flow():
     init_db()
     client.post("/surveys", data={
