@@ -51,6 +51,14 @@ python -m scripts.seed_demo     # creates a conjoint + a Van Westendorp demo,
 # then open the printed /surveys/<id>/results URLs
 ```
 
+## Front end
+
+A companion Vite + React single-page app lives in [`frontend/`](frontend) — a
+daily affirmation with live weather that links over to this survey tool. See
+[`frontend/README.md`](frontend/README.md) for develop/build instructions. Set
+`VITE_SURVEY_URL` when the survey tool is deployed at a different host than the
+front end.
+
 ## Deploy (containers)
 
 Sunshine ships with a `Dockerfile`, `docker-compose.yml`, and `Procfile` for
