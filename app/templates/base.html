@@ -37,7 +37,7 @@
     .pill.active { background: #e3f4e1; color: #2e7d32; }
     .pill.closed { background: #fce4e4; color: #c62828; }
     label { display: block; font-weight: 600; margin: 10px 0 4px; }
-    input[type=text], input[type=email], input[type=number], textarea, select {
+    input[type=text], input[type=email], input[type=number], input[type=password], textarea, select {
       width: 100%; padding: 9px 11px; border: 1px solid var(--line);
       border-radius: 7px; font: inherit; background: #fff;
     }
@@ -65,8 +65,11 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="wrap" style="padding:0; max-width:920px;">
+    <div class="wrap" style="padding:0; max-width:920px; display:flex; justify-content:space-between; align-items:center;">
       <a href="/">☀ Sunshine Surveys</a>
+      {% if request and request.session.get('admin') %}
+        <a href="/logout">Log out</a>
+      {% endif %}
     </div>
   </header>
   <div class="wrap">

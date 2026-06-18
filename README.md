@@ -25,8 +25,9 @@ FastAPI app.
     price attribute.
   - **Market simulator** — define competing products and see predicted
     share-of-preference.
-- **Admin authentication** — the researcher UI is protected by HTTP Basic Auth
-  (enabled by setting `ADMIN_PASSWORD`). Respondent survey links stay public.
+- **Admin authentication** — the researcher UI is protected by a browser login
+  screen (session cookie), enabled by setting `ADMIN_PASSWORD`. Respondent
+  survey links stay public.
 
 ## Quick start
 
@@ -112,15 +113,18 @@ Works with Gmail, SendGrid, Mailgun, Amazon SES, etc. via standard SMTP.
 
 ## Admin authentication
 
-The researcher/admin UI uses HTTP Basic Auth, enforced **only when
-`ADMIN_PASSWORD` is set** (otherwise the admin UI is open, convenient for local
-development). Respondent survey links (`/survey/<token>`) and `/healthz` are
-always public.
+The researcher/admin UI is protected by a browser **login screen** at `/login`
+(backed by a signed session cookie), enforced **only when `ADMIN_PASSWORD` is
+set** (otherwise the admin UI is open, convenient for local development).
+Signed-out visitors to an admin page are redirected to `/login`; a **Log out**
+link appears in the header once signed in. Respondent survey links
+(`/survey/<token>`) and `/healthz` are always public.
 
 | Variable | Purpose |
 | --- | --- |
 | `ADMIN_USER` | Admin username (default `admin`). |
 | `ADMIN_PASSWORD` | Admin password. **Empty = auth disabled.** Set it to require login. |
+| `SECRET_KEY` | Optional. Signs the session cookie; defaults to a value derived from `ADMIN_PASSWORD`. |
 
 ## The methodology, briefly
 
@@ -155,7 +159,7 @@ and PME (too expensive × cheap).
 app/
   main.py            FastAPI app + routes wiring + auth gating
   config.py          Settings (env / .env)
-  auth.py            HTTP Basic Auth dependency for the admin UI
+  auth.py            login screen + session-cookie guard for the admin UI
   database.py        SQLAlchemy engine & session
   models.py          ORM: Survey, Attribute, Level, Task, Concept, Participant,
                      Response, PricePerception

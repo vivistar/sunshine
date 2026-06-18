@@ -11,4 +11,4 @@ from .config import settings
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
-templates.env.globals["base_url"] = settings.base_url
+templates.env.globals["base_url"] = settings.effective_base_url

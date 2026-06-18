@@ -223,7 +223,7 @@ def send_invitations(survey_id: int, db: Session = Depends(get_db)):
     for participant in survey.participants:
         if participant.status == ParticipantStatus.completed:
             continue
-        link = f"{settings.base_url}/survey/{participant.token}"
+        link = f"{settings.effective_base_url}/survey/{participant.token}"
         subject, html, text = invitation_email(survey.name, link)
         if send_email(participant.email, subject, html, text):
             participant.status = ParticipantStatus.invited

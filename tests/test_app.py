@@ -111,19 +111,56 @@ def test_invalid_token_shows_not_found():
     assert "Link not found" in resp.text
 
 
-def test_admin_auth_enforced_when_password_set(monkeypatch):
+def test_admin_login_flow_when_password_set(monkeypatch):
     init_db()
     monkeypatch.setattr(settings, "admin_user", "boss")
     monkeypatch.setattr(settings, "admin_password", "s3cret")
 
-    # Admin pages require credentials.
-    assert client.get("/").status_code == 401
-    assert client.get("/", auth=("boss", "wrong")).status_code == 401
-    assert client.get("/", auth=("boss", "s3cret")).status_code == 200
+    c = TestClient(app)  # isolated cookie jar
+
+    # Signed-out admin pages redirect to the login screen.
+    r = c.get("/", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"].startswith("/login")
+
+    # The login screen is public and renders a form.
+    login = c.get("/login")
+    assert login.status_code == 200
+    assert "Sign in" in login.text
+
+    # Wrong credentials are rejected.
+    assert c.post("/login", data={"username": "boss", "password": "no"}).status_code == 401
+
+    # Correct credentials establish a session; admin pages then load.
+    ok = c.post("/login", data={"username": "boss", "password": "s3cret"},
+                follow_redirects=False)
+    assert ok.status_code == 303
+    assert c.get("/").status_code == 200
+
+    # Logout clears the session and re-protects admin pages.
+    c.get("/logout")
+    assert c.get("/", follow_redirects=False).status_code == 303
 
     # Health check and respondent survey routes stay public.
-    assert client.get("/healthz").status_code == 200
-    assert client.get("/survey/nope").status_code == 404  # not 401
+    assert c.get("/healthz").status_code == 200
+    assert c.get("/survey/nope").status_code == 404  # not a redirect to login
+
+
+def test_effective_base_url_auto_detect():
+    from app.config import Settings
+
+    # Explicit BASE_URL wins (and a trailing slash is trimmed).
+    s = Settings(base_url="https://custom.example/",
+                 render_external_url="https://x.onrender.com")
+    assert s.effective_base_url == "https://custom.example"
+
+    # Falls back to RENDER_EXTERNAL_URL when BASE_URL is unset.
+    s = Settings(base_url="", render_external_url="https://sunshine-zzrc.onrender.com")
+    assert s.effective_base_url == "https://sunshine-zzrc.onrender.com"
+
+    # Localhost default when neither is configured.
+    s = Settings(base_url="", render_external_url="")
+    assert s.effective_base_url == "http://localhost:8000"
 
 
 def test_van_westendorp_full_flow():
