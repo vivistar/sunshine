@@ -16,6 +16,7 @@ from app.models import (
     Survey,
     SurveyStatus,
     SurveyType,
+    Task,
 )
 
 client = TestClient(app)
@@ -154,6 +155,39 @@ def test_admin_login_flow_when_password_set(monkeypatch):
     # Health check and respondent survey routes stay public.
     assert c.get("/healthz").status_code == 200
     assert c.get("/survey/nope").status_code == 404  # not a redirect to login
+
+
+def test_delete_survey_removes_it_and_cascades(monkeypatch):
+    sid = _create_survey_with_design()
+    client.post(f"/surveys/{sid}/participants", data={"emails": "zoe@example.com"})
+
+    from app import audit
+
+    messages: list[str] = []
+    handler = logging.Handler()
+    handler.emit = lambda record: messages.append(record.getMessage())
+    audit.logger.addHandler(handler)
+    try:
+        r = client.post(f"/surveys/{sid}/delete", follow_redirects=False)
+    finally:
+        audit.logger.removeHandler(handler)
+
+    # Deleting redirects back to the survey list.
+    assert r.status_code == 303
+    assert r.headers["location"] == "/"
+
+    # The survey and its dependent rows (tasks, participants) are gone.
+    with SessionLocal() as db:
+        assert db.get(Survey, sid) is None
+        assert db.scalars(select(Task).where(Task.survey_id == sid)).first() is None
+        assert (
+            db.scalars(select(Participant).where(Participant.survey_id == sid)).first()
+            is None
+        )
+
+    # The detail page now 404s, and the deletion was audited.
+    assert client.get(f"/surveys/{sid}").status_code == 404
+    assert any("survey_deleted" in m for m in messages)
 
 
 def test_refuses_to_start_when_admin_unprotected(monkeypatch):

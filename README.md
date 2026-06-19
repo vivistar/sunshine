@@ -134,7 +134,7 @@ Changing `ADMIN_PASSWORD` (or `SECRET_KEY`) invalidates all existing sessions,
 logging everyone out — useful if you suspect unauthorized access.
 
 Security-relevant actions are written to a `sunshine.audit` log: admin logins
-(success and failure, with client IP) and survey creation.
+(success and failure, with client IP) and survey creation/deletion.
 
 | Variable | Purpose |
 | --- | --- |

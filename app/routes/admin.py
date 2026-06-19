@@ -348,6 +348,22 @@ def reopen_survey(survey_id: int, db: Session = Depends(get_db)):
     return RedirectResponse(f"/surveys/{survey_id}", status_code=303)
 
 
+@router.post("/surveys/{survey_id}/delete")
+def delete_survey(survey_id: int, request: Request, db: Session = Depends(get_db)):
+    """Permanently delete a survey and everything under it.
+
+    Relationships on Survey cascade (all, delete-orphan), so the design,
+    participants, and all collected responses go with it. Recorded to the audit
+    log since this is destructive and irreversible.
+    """
+    survey = _get_survey(db, survey_id)
+    name = survey.name
+    db.delete(survey)
+    db.commit()
+    audit.record("survey_deleted", request, id=survey_id, name=name)
+    return RedirectResponse("/", status_code=303)
+
+
 @router.get("/surveys/{survey_id}/results")
 def results(survey_id: int, request: Request, db: Session = Depends(get_db)):
     survey = _get_survey(db, survey_id)

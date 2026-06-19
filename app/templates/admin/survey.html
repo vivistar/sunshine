@@ -344,4 +344,15 @@
       {% endif %}
     </p>
   </div>
+
+  <!-- Danger zone -->
+  <div class="card">
+    <h2>Danger zone</h2>
+    <p class="muted">Permanently delete this survey and everything in it — its
+      design, participants, and all collected responses. This cannot be undone.</p>
+    <form class="inline" method="post" action="/surveys/{{ survey.id }}/delete"
+          onsubmit="return confirm('Permanently delete this survey and all {{ survey.participants | length }} participant(s) and their responses? This cannot be undone.');">
+      <button class="btn danger" type="submit">Delete survey</button>
+    </form>
+  </div>
 {% endblock %}
