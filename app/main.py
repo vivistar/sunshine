@@ -27,9 +27,20 @@ logger = logging.getLogger("sunshine")
 async def lifespan(app: FastAPI):
     init_db()
     if not settings.auth_enabled:
+        # Fail closed: an empty ADMIN_PASSWORD means the admin UI has no login.
+        # Refuse to start rather than silently expose it, unless the operator
+        # explicitly opts into the open mode for local development.
+        if not settings.allow_insecure_admin:
+            raise RuntimeError(
+                "Refusing to start: ADMIN_PASSWORD is empty, so the researcher "
+                "UI would be UNPROTECTED. Set ADMIN_PASSWORD to require login, "
+                "or set ALLOW_INSECURE_ADMIN=true to explicitly allow the open "
+                "admin UI for local development."
+            )
         logger.warning(
-            "Admin auth is DISABLED (ADMIN_PASSWORD is empty). The researcher "
-            "UI is open. Set ADMIN_PASSWORD to require login."
+            "Admin auth is DISABLED (ADMIN_PASSWORD is empty) and explicitly "
+            "permitted via ALLOW_INSECURE_ADMIN. The researcher UI is OPEN — "
+            "do not use this configuration in production."
         )
     yield
 

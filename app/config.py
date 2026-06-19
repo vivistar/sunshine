@@ -30,10 +30,16 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
 
     # Admin (researcher) login. Enforcement is enabled only when admin_password
-    # is non-empty; otherwise the admin UI is open (handy for local
-    # development). Respondent survey links are always public.
+    # is non-empty; otherwise the admin UI is open. Respondent survey links are
+    # always public.
     admin_user: str = "admin"
     admin_password: str = ""
+
+    # Fail closed: when admin_password is empty the admin UI has no login, which
+    # is only safe for local development and must be opted into explicitly. The
+    # app refuses to start with an unprotected admin UI unless this is true (see
+    # app.main.lifespan), so auth can never be silently disabled in production.
+    allow_insecure_admin: bool = False
 
     # Secret used to sign the admin session cookie. Optional: when empty a
     # stable secret is derived from admin_password (see auth.session_secret).

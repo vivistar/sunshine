@@ -1,5 +1,8 @@
 """End-to-end flow through the web app with the FastAPI TestClient."""
 
+import logging
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -151,6 +154,50 @@ def test_admin_login_flow_when_password_set(monkeypatch):
     # Health check and respondent survey routes stay public.
     assert c.get("/healthz").status_code == 200
     assert c.get("/survey/nope").status_code == 404  # not a redirect to login
+
+
+def test_refuses_to_start_when_admin_unprotected(monkeypatch):
+    # Empty password + no explicit opt-in => fail closed on startup (lifespan
+    # runs only when the TestClient is used as a context manager).
+    monkeypatch.setattr(settings, "admin_password", "")
+    monkeypatch.setattr(settings, "allow_insecure_admin", False)
+    with pytest.raises(RuntimeError, match="UNPROTECTED"):
+        with TestClient(app):
+            pass
+
+
+def test_starts_open_when_insecure_admin_explicitly_allowed(monkeypatch):
+    monkeypatch.setattr(settings, "admin_password", "")
+    monkeypatch.setattr(settings, "allow_insecure_admin", True)
+    with TestClient(app) as c:
+        assert c.get("/healthz").status_code == 200
+
+
+def test_audit_logs_survey_creation_and_logins(monkeypatch):
+    from app import audit
+
+    messages: list[str] = []
+    handler = logging.Handler()
+    handler.emit = lambda record: messages.append(record.getMessage())
+    audit.logger.addHandler(handler)
+    try:
+        # Survey creation is recorded (auth disabled here, so the POST goes through).
+        init_db()
+        client.post("/surveys", data={"name": "Audited survey"})
+        assert any(
+            "survey_created" in m and "Audited survey" in m for m in messages
+        )
+
+        # Both a failed and a successful admin login are recorded.
+        monkeypatch.setattr(settings, "admin_user", "boss")
+        monkeypatch.setattr(settings, "admin_password", "pw")
+        c = TestClient(app)
+        c.post("/login", data={"username": "boss", "password": "wrong"})
+        c.post("/login", data={"username": "boss", "password": "pw"})
+        assert any("admin_login_failed" in m for m in messages)
+        assert any("admin_login_success" in m for m in messages)
+    finally:
+        audit.logger.removeHandler(handler)
 
 
 def test_effective_base_url_auto_detect():

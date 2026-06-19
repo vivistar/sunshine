@@ -9,11 +9,13 @@ public.
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 
+from . import audit
 from .config import settings
 from .templating import templates
 
@@ -88,7 +90,11 @@ def login_submit(
     nxt = _safe_next(next)
     if credentials_valid(username, password):
         request.session["admin"] = True
+        audit.record("admin_login_success", request, user=username)
         return RedirectResponse(nxt, status_code=303)
+    audit.record(
+        "admin_login_failed", request, user=username, level=logging.WARNING
+    )
     return templates.TemplateResponse(
         request,
         "login.html",
@@ -99,5 +105,7 @@ def login_submit(
 
 @router.get("/logout")
 def logout(request: Request):
+    if request.session.get("admin"):
+        audit.record("admin_logout", request)
     request.session.clear()
     return RedirectResponse("/login", status_code=303)

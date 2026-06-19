@@ -122,16 +122,26 @@ Works with Gmail, SendGrid, Mailgun, Amazon SES, etc. via standard SMTP.
 
 The researcher/admin UI is protected by a browser **login screen** at `/login`
 (backed by a signed session cookie), enforced **only when `ADMIN_PASSWORD` is
-set** (otherwise the admin UI is open, convenient for local development).
-Signed-out visitors to an admin page are redirected to `/login`; a **Log out**
-link appears in the header once signed in. Respondent survey links
+set**. Signed-out visitors to an admin page are redirected to `/login`; a **Log
+out** link appears in the header once signed in. Respondent survey links
 (`/survey/<token>`) and `/healthz` are always public.
+
+**Fail closed:** if `ADMIN_PASSWORD` is empty the admin UI has no login, so the
+app **refuses to start** rather than expose it. For local development without a
+password, set `ALLOW_INSECURE_ADMIN=true` to explicitly allow the open UI.
+
+Changing `ADMIN_PASSWORD` (or `SECRET_KEY`) invalidates all existing sessions,
+logging everyone out — useful if you suspect unauthorized access.
+
+Security-relevant actions are written to a `sunshine.audit` log: admin logins
+(success and failure, with client IP) and survey creation.
 
 | Variable | Purpose |
 | --- | --- |
-| `ADMIN_USER` | Admin username (default `admin`). |
-| `ADMIN_PASSWORD` | Admin password. **Empty = auth disabled.** Set it to require login. |
-| `SECRET_KEY` | Optional. Signs the session cookie; defaults to a value derived from `ADMIN_PASSWORD`. |
+| `ADMIN_USER` | Admin username (default `admin`). Change it from the default. |
+| `ADMIN_PASSWORD` | Admin password. **Empty = auth disabled** (app won't start unless `ALLOW_INSECURE_ADMIN=true`). Set a long, random value to require login. |
+| `ALLOW_INSECURE_ADMIN` | Local dev only. `true` permits the open (no-login) admin UI when `ADMIN_PASSWORD` is empty. Never set in production. |
+| `SECRET_KEY` | Optional. Signs the session cookie; defaults to a value derived from `ADMIN_PASSWORD`. Pin a long random value to keep sessions stable across password changes. |
 
 ## The methodology, briefly
 

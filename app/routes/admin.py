@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import analysis, services
+from .. import analysis, audit, services
 from ..config import settings
 from ..database import get_db
 from ..email_utils import invitation_email, send_email
@@ -76,6 +76,7 @@ def index(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/surveys")
 def create_survey(
+    request: Request,
     name: str = Form(...),
     description: str = Form(""),
     survey_type: str = Form("conjoint"),
@@ -104,6 +105,9 @@ def create_survey(
     elif stype == SurveyType.maxdiff:
         db.add(MaxDiffConfig(survey_id=survey.id))
     db.commit()
+    audit.record(
+        "survey_created", request, id=survey.id, name=survey.name, type=stype.value
+    )
     return RedirectResponse(f"/surveys/{survey.id}", status_code=303)
 
 
