@@ -19,6 +19,9 @@ FastAPI app.
     on a shared scale (the matrix grid, with optional endpoint labels) or
     **rank** in order; results show mean, distribution, and top-choice share
     per item.
+  - **MaxDiff** (best-worst scaling) — define items, auto-generate a
+    count-balanced design of small sets, and respondents pick the **best** and
+    **worst** in each; results report the best-minus-worst score per item.
 - **Invite participants by email** — each respondent gets a unique survey link.
   Works with any SMTP provider, or runs in a no-credentials *console mode* for
   local development.

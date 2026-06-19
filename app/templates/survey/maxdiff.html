@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{{ survey.name }}{% endblock %}
+{% block content %}
+  <h1>{{ survey.name }}</h1>
+  {% if survey.description %}<p class="muted">{{ survey.description }}</p>{% endif %}
+  <p class="muted">In each set, choose the <strong>one best</strong> and the
+    <strong>one worst</strong> item.</p>
+
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  <form method="post" action="/survey/{{ participant.token }}">
+    {% for s in sets %}
+      <div class="card">
+        <p class="muted" style="margin-top:0;">Set {{ s.position }} of {{ sets | length }}</p>
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align:center; color:#2e7d32;">Best</th>
+              <th>Item</th>
+              <th style="text-align:center; color:#c62828;">Worst</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for it in s.options %}
+              <tr>
+                <td style="text-align:center;">
+                  <input type="radio" name="best_{{ s.id }}" value="{{ it.id }}" required
+                         {% if selected and selected.get(s.id) and selected[s.id].best == it.id %}checked{% endif %}>
+                </td>
+                <td>{{ it.text }}</td>
+                <td style="text-align:center;">
+                  <input type="radio" name="worst_{{ s.id }}" value="{{ it.id }}" required
+                         {% if selected and selected.get(s.id) and selected[s.id].worst == it.id %}checked{% endif %}>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endfor %}
+    <p><button type="submit">Submit my answers</button></p>
+  </form>
+{% endblock %}

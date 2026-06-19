@@ -18,7 +18,7 @@
             <tr>
               <td><a href="/surveys/{{ s.id }}"><strong>{{ s.name }}</strong></a><br>
                 <small class="muted">{{ s.description or "" }}</small></td>
-              <td><small>{% if s.survey_type == SurveyType.van_westendorp %}Van Westendorp{% elif s.survey_type == SurveyType.rating %}Ranking / Rating{% else %}Conjoint{% endif %}</small></td>
+              <td><small>{% if s.survey_type == SurveyType.van_westendorp %}Van Westendorp{% elif s.survey_type == SurveyType.rating %}Ranking / Rating{% elif s.survey_type == SurveyType.maxdiff %}MaxDiff{% else %}Conjoint{% endif %}</small></td>
               <td><span class="pill {{ s.status.value }}">{{ s.status.value }}</span></td>
               <td>{{ s.participants | length }}</td>
               <td><a class="btn secondary" href="/surveys/{{ s.id }}">Manage</a></td>
@@ -45,6 +45,7 @@
             <option value="conjoint">Choice-Based Conjoint</option>
             <option value="van_westendorp">Van Westendorp price sensitivity</option>
             <option value="rating">Ranking &amp; Rating (matrix)</option>
+            <option value="maxdiff">MaxDiff (best-worst)</option>
           </select>
         </div>
         <div>

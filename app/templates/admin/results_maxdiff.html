@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Results · {{ survey.name }}{% endblock %}
+{% block content %}
+  <p><a href="/surveys/{{ survey.id }}">← Back to survey</a></p>
+  <h1>MaxDiff results · {{ survey.name }}</h1>
+
+  {% if error %}
+    <div class="error">{{ error }}</div>
+  {% else %}
+    <div class="card">
+      <p><strong>{{ results.num_responses }}</strong> response(s) ·
+        items ordered by best-minus-worst score (higher is better).</p>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Item</th>
+            <th>Score</th>
+            <th>Best %</th>
+            <th>Worst %</th>
+            <th>Shown</th>
+            <th style="width:200px;">B−W</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in results.items %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td><strong>{{ it.text }}</strong></td>
+              <td>{{ "%+.2f"|format(it.score) }}</td>
+              <td>{{ "%.0f"|format(it.best_pct) }}%</td>
+              <td>{{ "%.0f"|format(it.worst_pct) }}%</td>
+              <td>{{ it.appearances }}</td>
+              <td>
+                {# Center bar: score in -1..+1 mapped onto a 0..100% axis. #}
+                {% set pos = (it.score + 1) / 2 * 100 %}
+                <div style="position:relative; height:16px; background:#f0ece3; border-radius:4px;">
+                  <div style="position:absolute; left:50%; top:0; bottom:0; width:1px; background:#bbb;"></div>
+                  {% if it.score >= 0 %}
+                    <div style="position:absolute; left:50%; top:0; bottom:0; width:{{ (pos - 50)|round(1) }}%; background:#2e7d32; border-radius:0 4px 4px 0;"></div>
+                  {% else %}
+                    <div style="position:absolute; right:50%; top:0; bottom:0; width:{{ (50 - pos)|round(1) }}%; background:#c62828; border-radius:4px 0 0 4px;"></div>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="muted" style="font-size:13px;">
+        Score = (times picked best − times picked worst) ÷ times shown, ranging
+        −1 to +1. "Shown" is the total number of times the item appeared across
+        all respondents.
+      </p>
+    </div>
+  {% endif %}
+{% endblock %}

@@ -6,11 +6,14 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from . import analysis, design, rating, van_westendorp
+from . import analysis, design, maxdiff, rating, van_westendorp
 from .models import (
     Concept,
     ConceptLevel,
     ItemResponse,
+    MaxDiffResponse,
+    MaxDiffSet,
+    MaxDiffSetItem,
     Participant,
     ParticipantStatus,
     PricePerception,
@@ -180,6 +183,85 @@ def record_item_responses(
     for item_id, value in values.items():
         db.add(
             ItemResponse(participant_id=participant.id, item_id=item_id, value=value)
+        )
+    participant.status = ParticipantStatus.completed
+    participant.completed_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+# --- MaxDiff ----------------------------------------------------------------
+
+def generate_and_store_maxdiff(
+    db: Session, survey: Survey, seed: int | None = None
+) -> None:
+    """(Re)generate the MaxDiff design and persist sets. Clears prior sets."""
+    cfg = survey.maxdiff_config
+    items = list(survey.items)
+    n = len(items)
+    k = cfg.items_per_set if cfg else 4
+    num_sets = (cfg.num_sets if cfg and cfg.num_sets else 0) or \
+        maxdiff.suggested_num_sets(n, k)
+
+    design_sets = maxdiff.generate_design(n, k, num_sets, seed=seed)
+
+    for mset in list(survey.maxdiff_sets):
+        db.delete(mset)
+    db.flush()
+
+    for s_pos, item_indices in enumerate(design_sets):
+        mset = MaxDiffSet(survey_id=survey.id, position=s_pos)
+        db.add(mset)
+        db.flush()
+        for i_pos, idx in enumerate(item_indices):
+            db.add(
+                MaxDiffSetItem(set_id=mset.id, item_id=items[idx].id, position=i_pos)
+            )
+
+    survey.status = SurveyStatus.active
+    db.commit()
+
+
+def gather_maxdiff_observations(survey: Survey) -> list[maxdiff.Observation]:
+    set_items = {
+        mset.id: [si.item_id for si in mset.set_items] for mset in survey.maxdiff_sets
+    }
+    out: list[maxdiff.Observation] = []
+    for participant in survey.participants:
+        for resp in participant.maxdiff_responses:
+            shown = set_items.get(resp.set_id, [])
+            out.append(
+                maxdiff.Observation(
+                    shown=shown, best=resp.best_item_id, worst=resp.worst_item_id
+                )
+            )
+    return out
+
+
+def run_maxdiff_summary(survey: Survey) -> maxdiff.MaxDiffResults:
+    items = [(it.id, it.text) for it in survey.items]
+    if not items:
+        raise ValueError("Add items first.")
+    num_responses = sum(
+        1 for p in survey.participants if p.maxdiff_responses
+    )
+    return maxdiff.summarize(items, gather_maxdiff_observations(survey), num_responses)
+
+
+def record_maxdiff_responses(
+    db: Session, participant: Participant, picks: dict[int, tuple[int, int]]
+) -> None:
+    """Persist best/worst picks per set (set_id -> (best_item_id, worst_item_id))."""
+    for resp in list(participant.maxdiff_responses):
+        db.delete(resp)
+    db.flush()
+    for set_id, (best_id, worst_id) in picks.items():
+        db.add(
+            MaxDiffResponse(
+                participant_id=participant.id,
+                set_id=set_id,
+                best_item_id=best_id,
+                worst_item_id=worst_id,
+            )
         )
     participant.status = ParticipantStatus.completed
     participant.completed_at = datetime.now(timezone.utc)
