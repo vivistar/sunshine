@@ -314,6 +314,62 @@ def test_rating_rank_flow():
     assert "Ranking" in results.text
 
 
+def test_maxdiff_full_flow():
+    init_db()
+    client.post("/surveys", data={"name": "Feature MaxDiff", "survey_type": "maxdiff"})
+    with SessionLocal() as db:
+        survey = db.scalar(select(Survey).where(Survey.name == "Feature MaxDiff"))
+        sid = survey.id
+        assert survey.survey_type == SurveyType.maxdiff
+        assert survey.maxdiff_config is not None
+
+    client.post(f"/surveys/{sid}/settings",
+                data={"items_per_set": "3", "num_sets": "5", "currency": "$"})
+    client.post(f"/surveys/{sid}/items",
+                data={"items": "Speed\nPrice\nSupport\nDesign\nAnalytics"})
+    client.post(f"/surveys/{sid}/generate")
+    with SessionLocal() as db:
+        survey = db.get(Survey, sid)
+        assert survey.status == SurveyStatus.active
+        assert len(survey.maxdiff_sets) == 5
+        assert all(len(s.set_items) == 3 for s in survey.maxdiff_sets)
+        # Capture each set's membership for building a valid submission.
+        sets = [(s.id, [si.item_id for si in s.set_items]) for s in survey.maxdiff_sets]
+
+    client.post(f"/surveys/{sid}/participants", data={"emails": "gus@example.com"})
+    with SessionLocal() as db:
+        token = db.scalar(
+            select(Participant).where(Participant.email == "gus@example.com")
+        ).token
+
+    page = client.get(f"/survey/{token}")
+    assert page.status_code == 200
+    assert "best" in page.text.lower() and "worst" in page.text.lower()
+
+    # Best == worst in a set is rejected.
+    bad_set_id, bad_members = sets[0]
+    bad = {f"best_{sid_}": str(mem[0]) for sid_, mem in sets}
+    bad.update({f"worst_{sid_}": str(mem[1]) for sid_, mem in sets})
+    bad[f"worst_{bad_set_id}"] = str(bad_members[0])  # same as best -> invalid
+    assert client.post(f"/survey/{token}", data=bad).status_code == 400
+
+    # Valid picks: first item best, second worst in each set.
+    good = {f"best_{sid_}": str(mem[0]) for sid_, mem in sets}
+    good.update({f"worst_{sid_}": str(mem[1]) for sid_, mem in sets})
+    ok = client.post(f"/survey/{token}", data=good)
+    assert ok.status_code == 200
+    assert "Thank you" in ok.text
+
+    with SessionLocal() as db:
+        p = db.scalar(select(Participant).where(Participant.token == token))
+        assert p.status == ParticipantStatus.completed
+        assert len(p.maxdiff_responses) == 5
+
+    results = client.get(f"/surveys/{sid}/results")
+    assert results.status_code == 200
+    assert "MaxDiff results" in results.text
+
+
 def test_market_simulator():
     sid = _create_survey_with_design()
     client.post(f"/surveys/{sid}/participants", data={"emails": "dave@example.com"})

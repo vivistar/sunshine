@@ -5,9 +5,11 @@
   <h1>{{ survey.name }}
     <span class="pill {{ survey.status.value }}">{{ survey.status.value }}</span></h1>
   <p class="muted">
-    {% if survey.survey_type == SurveyType.van_westendorp %}Van Westendorp price sensitivity{% elif survey.survey_type == SurveyType.rating %}Ranking / Rating{% else %}Choice-Based Conjoint{% endif %}
+    {% if survey.survey_type == SurveyType.van_westendorp %}Van Westendorp price sensitivity{% elif survey.survey_type == SurveyType.rating %}Ranking / Rating{% elif survey.survey_type == SurveyType.maxdiff %}MaxDiff (best-worst){% else %}Choice-Based Conjoint{% endif %}
     {% if survey.description %} · {{ survey.description }}{% endif %}
   </p>
+  {# Types with a design-generation step number their cards 1-4; others 1-3. #}
+  {% set two_step = survey.survey_type in [SurveyType.conjoint, SurveyType.maxdiff] %}
 
   {% if survey.survey_type == SurveyType.conjoint %}
   <!-- Attributes (conjoint only) -->
@@ -131,7 +133,7 @@
       </div>
     </form>
   </div>
-  {% else %}
+  {% elif survey.survey_type == SurveyType.rating %}
   <!-- Ranking / Rating setup -->
   {% set cfg = survey.rating_config %}
   <div class="card">
@@ -210,11 +212,82 @@
       <p>✅ Active — collecting responses ({{ survey.items | length }} items).</p>
     {% endif %}
   </div>
+  {% else %}
+  <!-- MaxDiff setup -->
+  {% set mcfg = survey.maxdiff_config %}
+  <div class="card">
+    <h2>1 · Items</h2>
+    <p class="muted">List the items respondents will compare. Each MaxDiff screen
+      shows a small subset; respondents pick the best and worst in each.</p>
+    {% if survey.items %}
+      <table>
+        <thead><tr><th>#</th><th>Item</th><th></th></tr></thead>
+        <tbody>
+          {% for it in survey.items %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>{{ it.text }}</td>
+              <td>
+                <form class="inline" method="post"
+                      action="/surveys/{{ survey.id }}/items/{{ it.id }}/delete"
+                      onsubmit="return confirm('Delete this item?');">
+                  <button class="btn danger" type="submit">Delete</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">No items yet.</p>
+    {% endif %}
+    <form method="post" action="/surveys/{{ survey.id }}/items">
+      <label for="items">Add items <small class="hint">(one per line or comma-separated)</small></label>
+      <textarea id="items" name="items" required placeholder="Fast support&#10;Lower price&#10;More integrations&#10;Better mobile app"></textarea>
+      <p><button type="submit">Add items</button></p>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>2 · Design (sets)</h2>
+    <form method="post" action="/surveys/{{ survey.id }}/settings">
+      <div class="row">
+        <div>
+          <label for="items_per_set">Items per set</label>
+          <input type="number" id="items_per_set" name="items_per_set" min="2" max="8"
+                 value="{{ mcfg.items_per_set if mcfg else 4 }}">
+        </div>
+        <div>
+          <label for="num_sets">Number of sets <small class="hint">(0 = auto)</small></label>
+          <input type="number" id="num_sets" name="num_sets" min="0" max="50"
+                 value="{{ mcfg.num_sets if mcfg else 0 }}">
+        </div>
+        <div><label>&nbsp;</label><button class="secondary btn" type="submit">Save design settings</button></div>
+      </div>
+    </form>
+
+    <hr style="border:none;border-top:1px solid var(--line);">
+    {% if survey.maxdiff_sets %}
+      <p>✅ Design generated: <strong>{{ survey.maxdiff_sets | length }}</strong> sets
+        of <strong>{{ mcfg.items_per_set if mcfg else 4 }}</strong> items each.</p>
+    {% else %}
+      <p class="muted">No design generated yet.</p>
+    {% endif %}
+    <form method="post" action="/surveys/{{ survey.id }}/generate"
+          onsubmit="return confirm('Generate (or regenerate) the design? This clears any existing responses.');">
+      <button type="submit" {% if not can_generate %}disabled{% endif %}>
+        {% if survey.maxdiff_sets %}Regenerate design{% else %}Generate design{% endif %}
+      </button>
+      {% if not can_generate %}
+        <small class="hint">Add at least as many items as items-per-set (3+).</small>
+      {% endif %}
+    </form>
+  </div>
   {% endif %}
 
   <!-- Participants -->
   <div class="card">
-    <h2>{% if survey.survey_type == SurveyType.conjoint %}3{% else %}2{% endif %} · Participants</h2>
+    <h2>{% if two_step %}3{% else %}2{% endif %} · Participants</h2>
     {% if not email_enabled %}
       <p class="notice">Console email mode — invitations are saved to
         <code>dev_outbox/</code>. Use each participant's link below to test.</p>
@@ -238,7 +311,7 @@
           ✉ Send invitations
         </button>
         {% if survey.status != SurveyStatus.active %}
-          <small class="hint">{% if survey.survey_type == SurveyType.conjoint %}Generate the design first.{% else %}Survey must be active.{% endif %}</small>
+          <small class="hint">{% if two_step %}Generate the design first.{% else %}Survey must be active.{% endif %}</small>
         {% endif %}
       </form>
     {% else %}
@@ -254,7 +327,7 @@
 
   <!-- Results / status -->
   <div class="card">
-    <h2>{% if survey.survey_type == SurveyType.conjoint %}4{% else %}3{% endif %} · Results &amp; status</h2>
+    <h2>{% if two_step %}4{% else %}3{% endif %} · Results &amp; status</h2>
     <p>
       <a class="btn" href="/surveys/{{ survey.id }}/results">View analysis →</a>
       {% if survey.survey_type == SurveyType.conjoint %}

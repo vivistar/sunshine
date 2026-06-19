@@ -42,6 +42,7 @@ class SurveyType(str, enum.Enum):
     conjoint = "conjoint"              # Choice-Based Conjoint
     van_westendorp = "van_westendorp"  # Price Sensitivity Meter
     rating = "rating"                  # Ranking / Rating (matrix)
+    maxdiff = "maxdiff"                # MaxDiff (best-worst scaling)
 
 
 class RatingMode(str, enum.Enum):
@@ -109,6 +110,16 @@ class Survey(Base):
         back_populates="survey",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+    maxdiff_config: Mapped["MaxDiffConfig | None"] = relationship(
+        back_populates="survey",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    maxdiff_sets: Mapped[list["MaxDiffSet"]] = relationship(
+        back_populates="survey",
+        cascade="all, delete-orphan",
+        order_by="MaxDiffSet.position",
     )
     participants: Mapped[list["Participant"]] = relationship(
         back_populates="survey", cascade="all, delete-orphan"
@@ -264,6 +275,83 @@ class ItemResponse(Base):
     item: Mapped[Item] = relationship(back_populates="responses")
 
 
+class MaxDiffConfig(Base):
+    """Per-survey settings for a MaxDiff (best-worst) survey."""
+
+    __tablename__ = "maxdiff_configs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    survey_id: Mapped[int] = mapped_column(
+        ForeignKey("surveys.id", ondelete="CASCADE"), unique=True
+    )
+    items_per_set: Mapped[int] = mapped_column(Integer, default=4)
+    num_sets: Mapped[int] = mapped_column(Integer, default=0)  # 0 = auto
+
+    survey: Mapped[Survey] = relationship(back_populates="maxdiff_config")
+
+
+class MaxDiffSet(Base):
+    """One screen of a MaxDiff design: a subset of items shown together."""
+
+    __tablename__ = "maxdiff_sets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    survey_id: Mapped[int] = mapped_column(
+        ForeignKey("surveys.id", ondelete="CASCADE")
+    )
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+    survey: Mapped[Survey] = relationship(back_populates="maxdiff_sets")
+    set_items: Mapped[list["MaxDiffSetItem"]] = relationship(
+        back_populates="set",
+        cascade="all, delete-orphan",
+        order_by="MaxDiffSetItem.position",
+    )
+
+
+class MaxDiffSetItem(Base):
+    """Membership of an item in a MaxDiff set."""
+
+    __tablename__ = "maxdiff_set_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    set_id: Mapped[int] = mapped_column(
+        ForeignKey("maxdiff_sets.id", ondelete="CASCADE")
+    )
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"))
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+    set: Mapped[MaxDiffSet] = relationship(back_populates="set_items")
+    item: Mapped["Item"] = relationship()
+
+
+class MaxDiffResponse(Base):
+    """A respondent's best & worst pick for one MaxDiff set."""
+
+    __tablename__ = "maxdiff_responses"
+    __table_args__ = (
+        UniqueConstraint(
+            "participant_id", "set_id", name="uq_maxdiff_response_participant_set"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    participant_id: Mapped[int] = mapped_column(
+        ForeignKey("participants.id", ondelete="CASCADE")
+    )
+    set_id: Mapped[int] = mapped_column(
+        ForeignKey("maxdiff_sets.id", ondelete="CASCADE")
+    )
+    best_item_id: Mapped[int] = mapped_column(ForeignKey("items.id"))
+    worst_item_id: Mapped[int] = mapped_column(ForeignKey("items.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    participant: Mapped["Participant"] = relationship(
+        back_populates="maxdiff_responses"
+    )
+    set: Mapped[MaxDiffSet] = relationship()
+
+
 class Participant(Base):
     __tablename__ = "participants"
     __table_args__ = (
@@ -289,6 +377,9 @@ class Participant(Base):
         back_populates="participant", cascade="all, delete-orphan"
     )
     item_responses: Mapped[list["ItemResponse"]] = relationship(
+        back_populates="participant", cascade="all, delete-orphan"
+    )
+    maxdiff_responses: Mapped[list["MaxDiffResponse"]] = relationship(
         back_populates="participant", cascade="all, delete-orphan"
     )
     price_perception: Mapped["PricePerception | None"] = relationship(

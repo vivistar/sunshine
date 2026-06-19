@@ -19,6 +19,7 @@ from ..models import (
 from ..services import (
     record_completion,
     record_item_responses,
+    record_maxdiff_responses,
     record_price_perception,
 )
 from ..templating import templates
@@ -71,6 +72,24 @@ def take_survey(token: str, request: Request, db: Session = Depends(get_db)):
             },
         )
 
+    if survey.survey_type == SurveyType.maxdiff:
+        sets = [
+            {
+                "id": mset.id,
+                "position": mset.position + 1,
+                "options": [
+                    {"id": si.item.id, "text": si.item.text}
+                    for si in mset.set_items
+                ],
+            }
+            for mset in survey.maxdiff_sets
+        ]
+        return templates.TemplateResponse(
+            request,
+            "survey/maxdiff.html",
+            {"survey": survey, "participant": participant, "sets": sets},
+        )
+
     # Build display data: each task with its concepts and per-attribute rows.
     attributes = [a.name for a in survey.attributes]
     tasks = []
@@ -118,6 +137,9 @@ async def submit_survey(token: str, request: Request, db: Session = Depends(get_
 
     if survey.survey_type == SurveyType.rating:
         return _submit_rating(request, db, participant, survey, form)
+
+    if survey.survey_type == SurveyType.maxdiff:
+        return _submit_maxdiff(request, db, participant, survey, form)
 
     # Valid concept ids per task, to guard against tampered submissions.
     valid_by_task = {
@@ -268,4 +290,57 @@ def _submit_rating(request, db, participant, survey, form):
         )
 
     record_item_responses(db, participant, values)
+    return RedirectResponse(f"/survey/{participant.token}", status_code=303)
+
+
+def _submit_maxdiff(request, db, participant, survey, form):
+    """Validate and store best/worst picks for every MaxDiff set."""
+    picks: dict[int, tuple[int, int]] = {}
+    error = None
+
+    for mset in survey.maxdiff_sets:
+        member_ids = {si.item_id for si in mset.set_items}
+        try:
+            best = int(form.get(f"best_{mset.id}"))
+            worst = int(form.get(f"worst_{mset.id}"))
+        except (TypeError, ValueError):
+            error = "Please pick a best and a worst item in every set."
+            break
+        if best not in member_ids or worst not in member_ids:
+            error = "Please choose items from within each set."
+            break
+        if best == worst:
+            error = "The best and worst item in a set must be different."
+            break
+        picks[mset.id] = (best, worst)
+
+    if error is not None:
+        sets = [
+            {
+                "id": mset.id,
+                "position": mset.position + 1,
+                "options": [
+                    {"id": si.item.id, "text": si.item.text}
+                    for si in mset.set_items
+                ],
+            }
+            for mset in survey.maxdiff_sets
+        ]
+        selected = {
+            sid: {"best": b, "worst": w} for sid, (b, w) in picks.items()
+        }
+        return templates.TemplateResponse(
+            request,
+            "survey/maxdiff.html",
+            {
+                "survey": survey,
+                "participant": participant,
+                "sets": sets,
+                "error": error,
+                "selected": selected,
+            },
+            status_code=400,
+        )
+
+    record_maxdiff_responses(db, participant, picks)
     return RedirectResponse(f"/survey/{participant.token}", status_code=303)

@@ -18,6 +18,7 @@ from ..models import (
     Attribute,
     Item,
     Level,
+    MaxDiffConfig,
     Participant,
     ParticipantStatus,
     RatingConfig,
@@ -84,6 +85,7 @@ def create_survey(
     stype = {
         "van_westendorp": SurveyType.van_westendorp,
         "rating": SurveyType.rating,
+        "maxdiff": SurveyType.maxdiff,
     }.get(survey_type, SurveyType.conjoint)
     survey = Survey(
         name=name.strip(),
@@ -96,9 +98,11 @@ def create_survey(
         survey.status = SurveyStatus.active
     db.add(survey)
     db.flush()
-    # Ranking/Rating carries its scale settings in a companion config row.
+    # Type-specific settings live in companion config rows (additive schema).
     if stype == SurveyType.rating:
         db.add(RatingConfig(survey_id=survey.id))
+    elif stype == SurveyType.maxdiff:
+        db.add(MaxDiffConfig(survey_id=survey.id))
     db.commit()
     return RedirectResponse(f"/surveys/{survey.id}", status_code=303)
 
@@ -112,6 +116,9 @@ def manage_survey(survey_id: int, request: Request, db: Session = Depends(get_db
     can_generate = len(survey.attributes) >= 1 and all(
         len(a.levels) >= 2 for a in survey.attributes
     )
+    if survey.survey_type == SurveyType.maxdiff:
+        k = survey.maxdiff_config.items_per_set if survey.maxdiff_config else 4
+        can_generate = len(survey.items) >= max(3, k)
     return templates.TemplateResponse(
         request,
         "admin/survey.html",
@@ -140,6 +147,8 @@ def update_settings(
     scale_points: str | None = Form(None),
     min_label: str = Form(""),
     max_label: str = Form(""),
+    items_per_set: str | None = Form(None),
+    num_sets: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     survey = _get_survey(db, survey_id)
@@ -165,6 +174,15 @@ def update_settings(
             cfg.scale_points = min(11, max(2, sp))
         cfg.min_label = min_label.strip()[:80]
         cfg.max_label = max_label.strip()[:80]
+    elif survey.survey_type == SurveyType.maxdiff:
+        cfg = survey.maxdiff_config
+        if cfg is None:
+            cfg = MaxDiffConfig(survey_id=survey.id)
+            db.add(cfg)
+        if (ips := _parse_int(items_per_set)) is not None:
+            cfg.items_per_set = max(2, ips)
+        if (ns := _parse_int(num_sets)) is not None:
+            cfg.num_sets = max(0, ns)  # 0 = auto
     db.commit()
     return RedirectResponse(f"/surveys/{survey_id}", status_code=303)
 
@@ -211,9 +229,9 @@ def delete_attribute(
 @router.post("/surveys/{survey_id}/items")
 def add_items(survey_id: int, items: str = Form(...), db: Session = Depends(get_db)):
     survey = _get_survey(db, survey_id)
-    if survey.survey_type != SurveyType.rating:
+    if survey.survey_type not in (SurveyType.rating, SurveyType.maxdiff):
         raise HTTPException(
-            status_code=400, detail="Items apply to ranking/rating surveys."
+            status_code=400, detail="Items apply to ranking/rating and MaxDiff surveys."
         )
     existing = {it.text.lower() for it in survey.items}
     position = len(survey.items)
@@ -250,11 +268,21 @@ def activate_survey(survey_id: int, db: Session = Depends(get_db)):
 @router.post("/surveys/{survey_id}/generate")
 def generate_design(survey_id: int, db: Session = Depends(get_db)):
     survey = _get_survey(db, survey_id)
-    if survey.survey_type != SurveyType.conjoint:
-        raise HTTPException(status_code=400, detail="Only conjoint surveys have a design.")
-    if not survey.attributes:
-        raise HTTPException(status_code=400, detail="Add attributes first.")
-    services.generate_and_store_design(db, survey)
+    if survey.survey_type == SurveyType.conjoint:
+        if not survey.attributes:
+            raise HTTPException(status_code=400, detail="Add attributes first.")
+        services.generate_and_store_design(db, survey)
+    elif survey.survey_type == SurveyType.maxdiff:
+        cfg = survey.maxdiff_config
+        k = cfg.items_per_set if cfg else 4
+        if len(survey.items) < k:
+            raise HTTPException(
+                status_code=400,
+                detail="Add at least as many items as items-per-set first.",
+            )
+        services.generate_and_store_maxdiff(db, survey)
+    else:
+        raise HTTPException(status_code=400, detail="This survey has no design step.")
     return RedirectResponse(f"/surveys/{survey_id}", status_code=303)
 
 
@@ -308,6 +336,7 @@ def reopen_survey(survey_id: int, db: Session = Depends(get_db)):
         survey.survey_type == SurveyType.van_westendorp
         or bool(survey.tasks)
         or (survey.survey_type == SurveyType.rating and len(survey.items) >= 2)
+        or (survey.survey_type == SurveyType.maxdiff and bool(survey.maxdiff_sets))
     )
     if ready:
         survey.status = SurveyStatus.active
@@ -344,6 +373,19 @@ def results(survey_id: int, request: Request, db: Session = Depends(get_db)):
             "admin/results_rating.html",
             {"survey": survey, "results": summary, "error": error,
              "RatingMode": RatingMode},
+        )
+
+    if survey.survey_type == SurveyType.maxdiff:
+        error = None
+        summary = None
+        try:
+            summary = services.run_maxdiff_summary(survey)
+        except ValueError as exc:
+            error = str(exc)
+        return templates.TemplateResponse(
+            request,
+            "admin/results_maxdiff.html",
+            {"survey": survey, "results": summary, "error": error},
         )
 
     error = None

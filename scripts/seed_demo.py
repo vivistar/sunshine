@@ -21,6 +21,8 @@ from app.models import (
     Item,
     ItemResponse,
     Level,
+    MaxDiffConfig,
+    MaxDiffResponse,
     Participant,
     ParticipantStatus,
     PricePerception,
@@ -31,7 +33,7 @@ from app.models import (
     SurveyStatus,
     SurveyType,
 )
-from app.services import generate_and_store_design
+from app.services import generate_and_store_design, generate_and_store_maxdiff
 
 # Attribute -> ordered levels for the demo study.
 ATTRIBUTES = {
@@ -202,6 +204,57 @@ def seed(num_participants: int = 60, seed: int = 7) -> None:
         db.commit()
         print(f"Seeded Ranking/Rating survey id={rt.id} with {num_participants} responses.")
         print(f"  Results: {settings.effective_base_url}/surveys/{rt.id}/results")
+
+        # --- MaxDiff demo ---------------------------------------------------
+        md_items = [
+            ("Lower price", 2.0),
+            ("Fast customer support", 1.6),
+            ("Better mobile app", 0.9),
+            ("More integrations", 0.4),
+            ("Advanced analytics", -0.2),
+            ("Single sign-on", -0.6),
+            ("Custom branding", -1.2),
+        ]
+        md = Survey(
+            name="Feature trade-offs (demo)",
+            description="Pick the best and worst feature in each set.",
+            survey_type=SurveyType.maxdiff,
+            currency="$",
+        )
+        db.add(md)
+        db.flush()
+        db.add(MaxDiffConfig(survey_id=md.id, items_per_set=4, num_sets=0))
+        util_by_item: dict[int, float] = {}
+        for pos, (text, util) in enumerate(md_items):
+            item = Item(survey_id=md.id, text=text, position=pos)
+            db.add(item)
+            db.flush()
+            util_by_item[item.id] = util
+        db.commit()
+        db.refresh(md)
+        generate_and_store_maxdiff(db, md, seed=seed)
+        db.refresh(md)
+
+        for i in range(num_participants):
+            participant = Participant(
+                survey_id=md.id,
+                email=f"md{i + 1}@example.com",
+                status=ParticipantStatus.completed,
+            )
+            db.add(participant)
+            db.flush()
+            for mset in md.maxdiff_sets:
+                ids = [si.item_id for si in mset.set_items]
+                noisy = {iid: util_by_item[iid] + rng.gauss(0, 0.8) for iid in ids}
+                db.add(MaxDiffResponse(
+                    participant_id=participant.id,
+                    set_id=mset.id,
+                    best_item_id=max(noisy, key=noisy.get),
+                    worst_item_id=min(noisy, key=noisy.get),
+                ))
+        db.commit()
+        print(f"Seeded MaxDiff survey id={md.id} with {num_participants} responses.")
+        print(f"  Results: {settings.effective_base_url}/surveys/{md.id}/results")
 
 
 if __name__ == "__main__":
