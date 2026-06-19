@@ -6,7 +6,14 @@ from sqlalchemy import select
 from app.config import settings
 from app.database import SessionLocal, init_db
 from app.main import app
-from app.models import Participant, ParticipantStatus, Survey, SurveyType
+from app.models import (
+    Participant,
+    ParticipantStatus,
+    RatingMode,
+    Survey,
+    SurveyStatus,
+    SurveyType,
+)
 
 client = TestClient(app)
 
@@ -208,6 +215,103 @@ def test_van_westendorp_full_flow():
     results = client.get(f"/surveys/{sid}/results")
     assert results.status_code == 200
     assert "acceptable prices" in results.text.lower()
+
+
+def test_rating_rate_flow():
+    init_db()
+    client.post("/surveys", data={
+        "name": "Feature priorities", "description": "Rate these.",
+        "survey_type": "rating",
+    })
+    with SessionLocal() as db:
+        survey = db.scalar(select(Survey).where(Survey.name == "Feature priorities"))
+        sid = survey.id
+        assert survey.survey_type == SurveyType.rating
+        assert survey.status == SurveyStatus.draft  # needs items + activation
+        assert survey.rating_config is not None
+
+    client.post(f"/surveys/{sid}/settings", data={
+        "rating_mode": "rate", "scale_points": "5",
+        "min_label": "Low", "max_label": "High", "currency": "$",
+    })
+    client.post(f"/surveys/{sid}/items", data={"items": "Speed\nPrice\nSupport"})
+    client.post(f"/surveys/{sid}/activate")
+    with SessionLocal() as db:
+        survey = db.get(Survey, sid)
+        assert survey.status == SurveyStatus.active
+        assert len(survey.items) == 3
+        item_ids = [it.id for it in survey.items]
+
+    client.post(f"/surveys/{sid}/participants", data={"emails": "ed@example.com"})
+    with SessionLocal() as db:
+        token = db.scalar(
+            select(Participant).where(Participant.email == "ed@example.com")
+        ).token
+
+    page = client.get(f"/survey/{token}")
+    assert page.status_code == 200
+    assert "Rate each item" in page.text
+
+    # An incomplete matrix is rejected.
+    bad = client.post(f"/survey/{token}", data={f"item_{item_ids[0]}": "5"})
+    assert bad.status_code == 400
+
+    form = {f"item_{iid}": str(v) for iid, v in zip(item_ids, [5, 3, 4])}
+    ok = client.post(f"/survey/{token}", data=form)
+    assert ok.status_code == 200
+    assert "Thank you" in ok.text
+
+    with SessionLocal() as db:
+        p = db.scalar(select(Participant).where(Participant.token == token))
+        assert p.status == ParticipantStatus.completed
+        assert len(p.item_responses) == 3
+
+    results = client.get(f"/surveys/{sid}/results")
+    assert results.status_code == 200
+    assert "Rating" in results.text
+
+
+def test_rating_rank_flow():
+    init_db()
+    client.post("/surveys", data={"name": "Rank colors", "survey_type": "rating"})
+    with SessionLocal() as db:
+        sid = db.scalar(select(Survey).where(Survey.name == "Rank colors")).id
+
+    client.post(f"/surveys/{sid}/settings",
+                data={"rating_mode": "rank", "currency": "$"})
+    client.post(f"/surveys/{sid}/items", data={"items": "Red, Green, Blue"})
+    client.post(f"/surveys/{sid}/activate")
+    with SessionLocal() as db:
+        survey = db.get(Survey, sid)
+        assert survey.rating_config.mode == RatingMode.rank
+        item_ids = [it.id for it in survey.items]
+
+    client.post(f"/surveys/{sid}/participants", data={"emails": "fi@example.com"})
+    with SessionLocal() as db:
+        token = db.scalar(
+            select(Participant).where(Participant.email == "fi@example.com")
+        ).token
+
+    page = client.get(f"/survey/{token}")
+    assert "Rank the items" in page.text
+
+    # Duplicate ranks are rejected.
+    dup = client.post(f"/survey/{token}", data={
+        f"item_{item_ids[0]}": "1", f"item_{item_ids[1]}": "1",
+        f"item_{item_ids[2]}": "2",
+    })
+    assert dup.status_code == 400
+
+    ok = client.post(f"/survey/{token}", data={
+        f"item_{item_ids[0]}": "2", f"item_{item_ids[1]}": "1",
+        f"item_{item_ids[2]}": "3",
+    })
+    assert ok.status_code == 200
+    assert "Thank you" in ok.text
+
+    results = client.get(f"/surveys/{sid}/results")
+    assert results.status_code == 200
+    assert "Ranking" in results.text
 
 
 def test_market_simulator():

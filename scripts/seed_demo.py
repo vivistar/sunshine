@@ -18,10 +18,14 @@ from app.database import SessionLocal, init_db
 from app.design import ConceptSpec
 from app.models import (
     Attribute,
+    Item,
+    ItemResponse,
     Level,
     Participant,
     ParticipantStatus,
     PricePerception,
+    RatingConfig,
+    RatingMode,
     Response,
     Survey,
     SurveyStatus,
@@ -153,6 +157,51 @@ def seed(num_participants: int = 60, seed: int = 7) -> None:
         db.commit()
         print(f"Seeded Van Westendorp survey id={vw.id} with {num_participants} responses.")
         print(f"  Results: {settings.effective_base_url}/surveys/{vw.id}/results")
+
+        # --- Ranking / Rating demo -----------------------------------------
+        rating_items = [
+            "Faster customer support",
+            "Lower monthly price",
+            "More integrations",
+            "Better mobile app",
+            "Advanced analytics",
+        ]
+        appeal = [4.4, 4.6, 3.5, 3.9, 3.2]  # simulated mean rating per item (1-5)
+        rt = Survey(
+            name="Feature priorities (demo)",
+            description="Which improvements matter most? Rate each from 1 to 5.",
+            survey_type=SurveyType.rating,
+            status=SurveyStatus.active,
+            currency="$",
+        )
+        db.add(rt)
+        db.flush()
+        db.add(RatingConfig(
+            survey_id=rt.id, mode=RatingMode.rate, scale_points=5,
+            min_label="Not important", max_label="Very important",
+        ))
+        items = []
+        for pos, text in enumerate(rating_items):
+            item = Item(survey_id=rt.id, text=text, position=pos)
+            db.add(item)
+            db.flush()
+            items.append(item)
+        for i in range(num_participants):
+            participant = Participant(
+                survey_id=rt.id,
+                email=f"rate{i + 1}@example.com",
+                status=ParticipantStatus.completed,
+            )
+            db.add(participant)
+            db.flush()
+            for item, mu in zip(items, appeal):
+                value = max(1, min(5, round(rng.gauss(mu, 0.9))))
+                db.add(ItemResponse(
+                    participant_id=participant.id, item_id=item.id, value=value
+                ))
+        db.commit()
+        print(f"Seeded Ranking/Rating survey id={rt.id} with {num_participants} responses.")
+        print(f"  Results: {settings.effective_base_url}/surveys/{rt.id}/results")
 
 
 if __name__ == "__main__":

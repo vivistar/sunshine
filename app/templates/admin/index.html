@@ -18,7 +18,7 @@
             <tr>
               <td><a href="/surveys/{{ s.id }}"><strong>{{ s.name }}</strong></a><br>
                 <small class="muted">{{ s.description or "" }}</small></td>
-              <td><small>{% if s.survey_type == SurveyType.van_westendorp %}Van Westendorp{% else %}Conjoint{% endif %}</small></td>
+              <td><small>{% if s.survey_type == SurveyType.van_westendorp %}Van Westendorp{% elif s.survey_type == SurveyType.rating %}Ranking / Rating{% else %}Conjoint{% endif %}</small></td>
               <td><span class="pill {{ s.status.value }}">{{ s.status.value }}</span></td>
               <td>{{ s.participants | length }}</td>
               <td><a class="btn secondary" href="/surveys/{{ s.id }}">Manage</a></td>
@@ -36,7 +36,7 @@
     <form method="post" action="/surveys">
       <label for="name">Name</label>
       <input type="text" id="name" name="name" required placeholder="e.g. Coffee subscription preferences">
-      <label for="description">Description <small class="hint">(shown to respondents for Van Westendorp; otherwise to you only)</small></label>
+      <label for="description">Description <small class="hint">(shown to respondents for Van Westendorp and Ranking/Rating; otherwise to you only)</small></label>
       <textarea id="description" name="description" placeholder="Describe the product."></textarea>
       <div class="row">
         <div>
@@ -44,6 +44,7 @@
           <select id="survey_type" name="survey_type">
             <option value="conjoint">Choice-Based Conjoint</option>
             <option value="van_westendorp">Van Westendorp price sensitivity</option>
+            <option value="rating">Ranking &amp; Rating (matrix)</option>
           </select>
         </div>
         <div>

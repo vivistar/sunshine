@@ -8,13 +8,17 @@ FastAPI app.
 
 ## What it does
 
-- **Two survey types**
+- **Survey types**
   - **Choice-Based Conjoint** — define attributes (e.g. *Price*, *Brand*,
     *Size*) and levels, auto-generate a randomized choice design (configurable
     options per task, optional "None of these"), and present choice tasks.
   - **Van Westendorp** — respondents answer the four classic price questions;
     the tool computes the Optimal Price Point (OPP), Indifference Price (IPP),
     and the acceptable price range (PMC–PME), with a curve chart.
+  - **Ranking / Rating** — define a list of items respondents either **rate**
+    on a shared scale (the matrix grid, with optional endpoint labels) or
+    **rank** in order; results show mean, distribution, and top-choice share
+    per item.
 - **Invite participants by email** — each respondent gets a unique survey link.
   Works with any SMTP provider, or runs in a no-credentials *console mode* for
   local development.
