@@ -41,6 +41,12 @@ def _new_token() -> str:
 class SurveyType(str, enum.Enum):
     conjoint = "conjoint"              # Choice-Based Conjoint
     van_westendorp = "van_westendorp"  # Price Sensitivity Meter
+    rating = "rating"                  # Ranking / Rating (matrix)
+
+
+class RatingMode(str, enum.Enum):
+    rate = "rate"  # rate each item on a shared scale (matrix grid)
+    rank = "rank"  # order the items from best (1) to worst (N)
 
 
 class SurveyStatus(str, enum.Enum):
@@ -93,6 +99,16 @@ class Survey(Base):
         back_populates="survey",
         cascade="all, delete-orphan",
         order_by="Task.position",
+    )
+    items: Mapped[list["Item"]] = relationship(
+        back_populates="survey",
+        cascade="all, delete-orphan",
+        order_by="Item.position",
+    )
+    rating_config: Mapped["RatingConfig | None"] = relationship(
+        back_populates="survey",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
     participants: Mapped[list["Participant"]] = relationship(
         back_populates="survey", cascade="all, delete-orphan"
@@ -188,6 +204,66 @@ class ConceptLevel(Base):
     level: Mapped[Level] = relationship()
 
 
+class RatingConfig(Base):
+    """Per-survey settings for a Ranking / Rating survey (kept off the surveys
+    table so the schema stays additive — new table only — for existing DBs)."""
+
+    __tablename__ = "rating_configs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    survey_id: Mapped[int] = mapped_column(
+        ForeignKey("surveys.id", ondelete="CASCADE"), unique=True
+    )
+    mode: Mapped[RatingMode] = mapped_column(
+        Enum(RatingMode), default=RatingMode.rate, nullable=False
+    )
+    scale_points: Mapped[int] = mapped_column(Integer, default=5)
+    min_label: Mapped[str] = mapped_column(String(80), default="")
+    max_label: Mapped[str] = mapped_column(String(80), default="")
+
+    survey: Mapped[Survey] = relationship(back_populates="rating_config")
+
+
+class Item(Base):
+    """A statement/option respondents rate or rank in a Ranking/Rating survey."""
+
+    __tablename__ = "items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    survey_id: Mapped[int] = mapped_column(
+        ForeignKey("surveys.id", ondelete="CASCADE")
+    )
+    text: Mapped[str] = mapped_column(String(300), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+    survey: Mapped[Survey] = relationship(back_populates="items")
+    responses: Mapped[list["ItemResponse"]] = relationship(
+        back_populates="item", cascade="all, delete-orphan"
+    )
+
+
+class ItemResponse(Base):
+    """One respondent's rating (scale value) or rank for a single item."""
+
+    __tablename__ = "item_responses"
+    __table_args__ = (
+        UniqueConstraint(
+            "participant_id", "item_id", name="uq_item_response_participant_item"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    participant_id: Mapped[int] = mapped_column(
+        ForeignKey("participants.id", ondelete="CASCADE")
+    )
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"))
+    value: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    participant: Mapped["Participant"] = relationship(back_populates="item_responses")
+    item: Mapped[Item] = relationship(back_populates="responses")
+
+
 class Participant(Base):
     __tablename__ = "participants"
     __table_args__ = (
@@ -210,6 +286,9 @@ class Participant(Base):
 
     survey: Mapped[Survey] = relationship(back_populates="participants")
     responses: Mapped[list["Response"]] = relationship(
+        back_populates="participant", cascade="all, delete-orphan"
+    )
+    item_responses: Mapped[list["ItemResponse"]] = relationship(
         back_populates="participant", cascade="all, delete-orphan"
     )
     price_perception: Mapped["PricePerception | None"] = relationship(

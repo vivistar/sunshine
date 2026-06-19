@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Results · {{ survey.name }}{% endblock %}
+{% block content %}
+  <p><a href="/surveys/{{ survey.id }}">← Back to survey</a></p>
+  <h1>{% if results and results.mode == RatingMode.rank %}Ranking{% else %}Rating{% endif %}
+    results · {{ survey.name }}</h1>
+
+  {% if error %}
+    <div class="error">{{ error }}</div>
+  {% else %}
+    {% set ncols = results.columns | length %}
+    <div class="card">
+      <p><strong>{{ results.num_responses }}</strong> response(s) ·
+        {% if results.mode == RatingMode.rank %}
+          items ordered by mean rank (lower is better)
+        {% else %}
+          items ordered by mean rating (higher is better)
+        {% endif %}.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Item</th>
+            <th>{% if results.mode == RatingMode.rank %}Mean rank{% else %}Mean{% endif %}</th>
+            <th>n</th>
+            <th>{% if results.mode == RatingMode.rank %}% ranked #1{% else %}% top box{% endif %}</th>
+            <th style="width:220px;">Score</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in results.items %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td><strong>{{ it.text }}</strong></td>
+              <td>{{ "%.2f"|format(it.mean) }}</td>
+              <td>{{ it.n }}</td>
+              <td>{{ "%.0f"|format(it.top_choice_pct) }}%</td>
+              <td>
+                {% if results.mode == RatingMode.rank %}
+                  {% set frac = (ncols - it.mean + 1) / ncols %}
+                {% else %}
+                  {% set frac = it.mean / ncols %}
+                {% endif %}
+                <div class="bar"><span style="width: {{ (100 * frac) | round(1) }}%;"></span></div>
+                <small class="hint">distribution: {{ it.distribution | join(" / ") }}</small>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="muted" style="font-size:13px;">
+        Distribution columns (left → right): {{ results.columns | join(", ") }}{% if results.mode != RatingMode.rank and (results.min_label or results.max_label) %}
+          &nbsp;·&nbsp;{{ results.min_label or "low" }} → {{ results.max_label or "high" }}{% endif %}.
+      </p>
+    </div>
+  {% endif %}
+{% endblock %}

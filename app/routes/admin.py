@@ -16,9 +16,12 @@ from ..database import get_db
 from ..email_utils import invitation_email, send_email
 from ..models import (
     Attribute,
+    Item,
     Level,
     Participant,
     ParticipantStatus,
+    RatingConfig,
+    RatingMode,
     Survey,
     SurveyStatus,
     SurveyType,
@@ -78,11 +81,10 @@ def create_survey(
     currency: str = Form("$"),
     db: Session = Depends(get_db),
 ):
-    stype = (
-        SurveyType.van_westendorp
-        if survey_type == "van_westendorp"
-        else SurveyType.conjoint
-    )
+    stype = {
+        "van_westendorp": SurveyType.van_westendorp,
+        "rating": SurveyType.rating,
+    }.get(survey_type, SurveyType.conjoint)
     survey = Survey(
         name=name.strip(),
         description=description.strip(),
@@ -93,6 +95,10 @@ def create_survey(
     if stype == SurveyType.van_westendorp:
         survey.status = SurveyStatus.active
     db.add(survey)
+    db.flush()
+    # Ranking/Rating carries its scale settings in a companion config row.
+    if stype == SurveyType.rating:
+        db.add(RatingConfig(survey_id=survey.id))
     db.commit()
     return RedirectResponse(f"/surveys/{survey.id}", status_code=303)
 
@@ -116,6 +122,7 @@ def manage_survey(survey_id: int, request: Request, db: Session = Depends(get_db
             "email_enabled": settings.email_enabled,
             "SurveyStatus": SurveyStatus,
             "SurveyType": SurveyType,
+            "RatingMode": RatingMode,
             "ParticipantStatus": ParticipantStatus,
         },
     )
@@ -129,6 +136,10 @@ def update_settings(
     alternatives_per_task: str | None = Form(None),
     include_none: bool = Form(False),
     price_attribute_id: str | None = Form(None),
+    rating_mode: str = Form("rate"),
+    scale_points: str | None = Form(None),
+    min_label: str = Form(""),
+    max_label: str = Form(""),
     db: Session = Depends(get_db),
 ):
     survey = _get_survey(db, survey_id)
@@ -144,6 +155,16 @@ def update_settings(
         survey.price_attribute_id = (
             pid if pid in {a.id for a in survey.attributes} else None
         )
+    elif survey.survey_type == SurveyType.rating:
+        cfg = survey.rating_config
+        if cfg is None:
+            cfg = RatingConfig(survey_id=survey.id)
+            db.add(cfg)
+        cfg.mode = RatingMode.rank if rating_mode == "rank" else RatingMode.rate
+        if (sp := _parse_int(scale_points)) is not None:
+            cfg.scale_points = min(11, max(2, sp))
+        cfg.min_label = min_label.strip()[:80]
+        cfg.max_label = max_label.strip()[:80]
     db.commit()
     return RedirectResponse(f"/surveys/{survey_id}", status_code=303)
 
@@ -183,6 +204,45 @@ def delete_attribute(
         if survey.price_attribute_id == attribute.id:
             survey.price_attribute_id = None
         db.delete(attribute)
+        db.commit()
+    return RedirectResponse(f"/surveys/{survey_id}", status_code=303)
+
+
+@router.post("/surveys/{survey_id}/items")
+def add_items(survey_id: int, items: str = Form(...), db: Session = Depends(get_db)):
+    survey = _get_survey(db, survey_id)
+    if survey.survey_type != SurveyType.rating:
+        raise HTTPException(
+            status_code=400, detail="Items apply to ranking/rating surveys."
+        )
+    existing = {it.text.lower() for it in survey.items}
+    position = len(survey.items)
+    for text in _parse_lines(items):
+        if text.lower() in existing:
+            continue
+        db.add(Item(survey_id=survey.id, text=text, position=position))
+        existing.add(text.lower())
+        position += 1
+    db.commit()
+    return RedirectResponse(f"/surveys/{survey_id}", status_code=303)
+
+
+@router.post("/surveys/{survey_id}/items/{item_id}/delete")
+def delete_item(survey_id: int, item_id: int, db: Session = Depends(get_db)):
+    survey = _get_survey(db, survey_id)
+    item = db.get(Item, item_id)
+    if item and item.survey_id == survey.id:
+        db.delete(item)
+        db.commit()
+    return RedirectResponse(f"/surveys/{survey_id}", status_code=303)
+
+
+@router.post("/surveys/{survey_id}/activate")
+def activate_survey(survey_id: int, db: Session = Depends(get_db)):
+    """Activate a ranking/rating survey once it has at least two items."""
+    survey = _get_survey(db, survey_id)
+    if survey.survey_type == SurveyType.rating and len(survey.items) >= 2:
+        survey.status = SurveyStatus.active
         db.commit()
     return RedirectResponse(f"/surveys/{survey_id}", status_code=303)
 
@@ -243,8 +303,13 @@ def close_survey(survey_id: int, db: Session = Depends(get_db)):
 @router.post("/surveys/{survey_id}/reopen")
 def reopen_survey(survey_id: int, db: Session = Depends(get_db)):
     survey = _get_survey(db, survey_id)
-    # Conjoint needs a generated design to be active; VW is always ready.
-    if survey.survey_type == SurveyType.van_westendorp or survey.tasks:
+    # Conjoint needs a generated design; rating needs items; VW is always ready.
+    ready = (
+        survey.survey_type == SurveyType.van_westendorp
+        or bool(survey.tasks)
+        or (survey.survey_type == SurveyType.rating and len(survey.items) >= 2)
+    )
+    if ready:
         survey.status = SurveyStatus.active
         db.commit()
     return RedirectResponse(f"/surveys/{survey_id}", status_code=303)
@@ -265,6 +330,20 @@ def results(survey_id: int, request: Request, db: Session = Depends(get_db)):
             request,
             "admin/results_vw.html",
             {"survey": survey, "results": vw, "error": error},
+        )
+
+    if survey.survey_type == SurveyType.rating:
+        error = None
+        summary = None
+        try:
+            summary = services.run_rating_summary(survey)
+        except ValueError as exc:
+            error = str(exc)
+        return templates.TemplateResponse(
+            request,
+            "admin/results_rating.html",
+            {"survey": survey, "results": summary, "error": error,
+             "RatingMode": RatingMode},
         )
 
     error = None

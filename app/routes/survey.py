@@ -9,8 +9,18 @@ from sqlalchemy.orm import Session
 
 from .. import van_westendorp
 from ..database import get_db
-from ..models import Participant, ParticipantStatus, SurveyStatus, SurveyType
-from ..services import record_completion, record_price_perception
+from ..models import (
+    Participant,
+    ParticipantStatus,
+    RatingMode,
+    SurveyStatus,
+    SurveyType,
+)
+from ..services import (
+    record_completion,
+    record_item_responses,
+    record_price_perception,
+)
 from ..templating import templates
 
 router = APIRouter()
@@ -43,6 +53,22 @@ def take_survey(token: str, request: Request, db: Session = Depends(get_db)):
             request,
             "survey/van_westendorp.html",
             {"survey": survey, "participant": participant},
+        )
+
+    if survey.survey_type == SurveyType.rating:
+        cfg = survey.rating_config
+        return templates.TemplateResponse(
+            request,
+            "survey/rating.html",
+            {
+                "survey": survey,
+                "participant": participant,
+                "items": survey.items,
+                "config": cfg,
+                "mode": cfg.mode if cfg else RatingMode.rate,
+                "scale_points": cfg.scale_points if cfg else 5,
+                "RatingMode": RatingMode,
+            },
         )
 
     # Build display data: each task with its concepts and per-attribute rows.
@@ -89,6 +115,9 @@ async def submit_survey(token: str, request: Request, db: Session = Depends(get_
 
     if survey.survey_type == SurveyType.van_westendorp:
         return _submit_van_westendorp(request, db, participant, survey, form)
+
+    if survey.survey_type == SurveyType.rating:
+        return _submit_rating(request, db, participant, survey, form)
 
     # Valid concept ids per task, to guard against tampered submissions.
     valid_by_task = {
@@ -182,4 +211,61 @@ def _submit_van_westendorp(request, db, participant, survey, form):
         too_cheap=values["too_cheap"], cheap=values["cheap"],
         expensive=values["expensive"], too_expensive=values["too_expensive"],
     )
+    return RedirectResponse(f"/survey/{participant.token}", status_code=303)
+
+
+def _submit_rating(request, db, participant, survey, form):
+    """Validate and store a Ranking/Rating response (one value per item)."""
+    cfg = survey.rating_config
+    mode = cfg.mode if cfg else RatingMode.rate
+    items = survey.items
+    values: dict[int, int] = {}
+    error = None
+
+    if mode == RatingMode.rank:
+        n = len(items)
+        seen: set[int] = set()
+        for item in items:
+            try:
+                v = int(form.get(f"item_{item.id}"))
+            except (TypeError, ValueError):
+                error = "Please assign a rank to every item."
+                break
+            if v < 1 or v > n or v in seen:
+                error = f"Give each item a unique rank from 1 to {n}."
+                break
+            seen.add(v)
+            values[item.id] = v
+    else:
+        points = cfg.scale_points if cfg else 5
+        for item in items:
+            try:
+                v = int(form.get(f"item_{item.id}"))
+            except (TypeError, ValueError):
+                error = "Please rate every item."
+                break
+            if v < 1 or v > points:
+                error = f"Ratings must be between 1 and {points}."
+                break
+            values[item.id] = v
+
+    if error is not None:
+        return templates.TemplateResponse(
+            request,
+            "survey/rating.html",
+            {
+                "survey": survey,
+                "participant": participant,
+                "items": items,
+                "config": cfg,
+                "mode": mode,
+                "scale_points": cfg.scale_points if cfg else 5,
+                "RatingMode": RatingMode,
+                "error": error,
+                "selected": values,
+            },
+            status_code=400,
+        )
+
+    record_item_responses(db, participant, values)
     return RedirectResponse(f"/survey/{participant.token}", status_code=303)

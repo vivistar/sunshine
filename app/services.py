@@ -6,13 +6,15 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from . import analysis, design, van_westendorp
+from . import analysis, design, rating, van_westendorp
 from .models import (
     Concept,
     ConceptLevel,
+    ItemResponse,
     Participant,
     ParticipantStatus,
     PricePerception,
+    RatingMode,
     Response,
     Survey,
     SurveyStatus,
@@ -136,6 +138,48 @@ def record_completion(
                 task_id=task_id,
                 chosen_concept_id=concept_id,
             )
+        )
+    participant.status = ParticipantStatus.completed
+    participant.completed_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+# --- Ranking / Rating -------------------------------------------------------
+
+def gather_item_responses(survey: Survey) -> list[dict[int, int]]:
+    """One {item_id: value} dict per participant that answered."""
+    out: list[dict[int, int]] = []
+    for participant in survey.participants:
+        if participant.item_responses:
+            out.append({ir.item_id: ir.value for ir in participant.item_responses})
+    return out
+
+
+def run_rating_summary(survey: Survey) -> rating.RatingSummary:
+    cfg = survey.rating_config
+    items = [(it.id, it.text) for it in survey.items]
+    if not items:
+        raise ValueError("Add items first.")
+    return rating.summarize(
+        items,
+        gather_item_responses(survey),
+        mode=cfg.mode if cfg else RatingMode.rate,
+        scale_points=cfg.scale_points if cfg else 5,
+        min_label=cfg.min_label if cfg else "",
+        max_label=cfg.max_label if cfg else "",
+    )
+
+
+def record_item_responses(
+    db: Session, participant: Participant, values: dict[int, int]
+) -> None:
+    """Persist a participant's item ratings/ranks (item_id -> value)."""
+    for ir in list(participant.item_responses):
+        db.delete(ir)
+    db.flush()
+    for item_id, value in values.items():
+        db.add(
+            ItemResponse(participant_id=participant.id, item_id=item_id, value=value)
         )
     participant.status = ParticipantStatus.completed
     participant.completed_at = datetime.now(timezone.utc)

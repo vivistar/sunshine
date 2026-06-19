@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ survey.name }}{% endblock %}
+{% block content %}
+  <h1>{{ survey.name }}</h1>
+  {% if survey.description %}<p class="muted">{{ survey.description }}</p>{% endif %}
+
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  <form method="post" action="/survey/{{ participant.token }}">
+  {% if mode == RatingMode.rank %}
+    <p class="muted">Rank the items from <strong>1 (best)</strong> to
+      <strong>{{ items | length }} (worst)</strong>. Use each rank only once.</p>
+    <div class="card">
+      <table>
+        <thead><tr><th>Item</th><th style="width:120px;">Rank</th></tr></thead>
+        <tbody>
+          {% for it in items %}
+            <tr>
+              <td>{{ it.text }}</td>
+              <td>
+                <select name="item_{{ it.id }}" required>
+                  <option value="">—</option>
+                  {% for k in range(1, items | length + 1) %}
+                    <option value="{{ k }}" {% if selected and selected.get(it.id) == k %}selected{% endif %}>{{ k }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">Rate each item from
+      <strong>1{% if config and config.min_label %} — {{ config.min_label }}{% endif %}</strong>
+      to
+      <strong>{{ scale_points }}{% if config and config.max_label %} — {{ config.max_label }}{% endif %}</strong>.</p>
+    <div class="card" style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            {% for k in range(1, scale_points + 1) %}
+              <th style="text-align:center;">{{ k }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+            <tr>
+              <td>{{ it.text }}</td>
+              {% for k in range(1, scale_points + 1) %}
+                <td style="text-align:center;">
+                  <input type="radio" name="item_{{ it.id }}" value="{{ k }}" required
+                         {% if selected and selected.get(it.id) == k %}checked{% endif %}>
+                </td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+    <p><button type="submit">Submit my answers</button></p>
+  </form>
+{% endblock %}
