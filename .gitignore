@@ -7,18 +7,64 @@ __pycache__/
 venv/
 env/
 
-# Local config & secrets
+# Local config & secrets — ignore real env files, keep the *.example templates.
 .env
+.env.*
+!.env.example
+!*.env.example
+# Tracked on purpose: frontend build config holds only a public URL, no secret.
+!frontend/.env.production
 
-# Databases
+# Credentials / keys — never commit these.
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_dsa
+*_rsa
+*_dsa
+secrets.*
+*secret*.json
+*credentials*.json
+service-account*.json
+.netrc
+
+# Databases (contain real response data)
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
 *.sqlite3
 sunshine.db
+
+# Dev email outbox (console mode — contains participant emails)
+dev_outbox/
+
+# Logs
+*.log
+
+# Node / frontend build output
+node_modules/
+dist/
+build/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Test / tooling
 .pytest_cache/
 .coverage
 htmlcov/
+.mypy_cache/
+.ruff_cache/
 
-# Dev email outbox (console mode)
-dev_outbox/
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
