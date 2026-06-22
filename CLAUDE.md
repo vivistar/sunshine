@@ -24,8 +24,9 @@ surfaces. Note in your summary which items you applied or deliberately skipped.
    and survey create/delete are logged via `app/audit.py`. Route new destructive
    or admin actions through `audit.record(...)`.
 5. **Least exposure.** Never echo secrets in logs or errors. Session cookies are
-   `HttpOnly` + `SameSite`; prefer `Secure` + HTTPS in production. Respondent
-   links use unguessable tokens — keep them that way.
+   `HttpOnly` + `SameSite`, and `Secure` when served over HTTPS (auto-detected
+   from the base URL — see `settings.session_cookie_secure`). Respondent links
+   use unguessable tokens — keep them that way.
 
 These are defaults, not mandates — if a change clearly calls for something
 different, say so and adapt.

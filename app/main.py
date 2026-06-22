@@ -57,6 +57,7 @@ app.add_middleware(
     session_cookie="sunshine_session",
     max_age=60 * 60 * 8,  # 8 hours
     same_site="lax",
+    https_only=settings.session_cookie_secure,  # Secure flag when served over HTTPS
 )
 
 

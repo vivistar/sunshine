@@ -251,6 +251,20 @@ def test_effective_base_url_auto_detect():
     assert s.effective_base_url == "http://localhost:8000"
 
 
+def test_session_cookie_secure_follows_scheme():
+    from app.config import Settings
+
+    # HTTPS base URL -> Secure cookie; localhost http -> not Secure.
+    assert Settings(base_url="https://x.example").session_cookie_secure is True
+    assert Settings(base_url="http://localhost:8000").session_cookie_secure is False
+    # Auto-detected from Render's HTTPS URL when BASE_URL is unset.
+    assert Settings(
+        base_url="", render_external_url="https://a.onrender.com"
+    ).session_cookie_secure is True
+    # Localhost default (no config) stays http -> not Secure.
+    assert Settings(base_url="", render_external_url="").session_cookie_secure is False
+
+
 def test_van_westendorp_full_flow():
     init_db()
     client.post("/surveys", data={

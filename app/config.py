@@ -67,5 +67,16 @@ class Settings(BaseSettings):
         """True when admin login should be enforced."""
         return bool(self.admin_password)
 
+    @property
+    def session_cookie_secure(self) -> bool:
+        """Mark the session cookie ``Secure`` when served over HTTPS.
+
+        Derived from the effective base URL scheme so it turns on automatically
+        in production (Render and any pinned ``https://`` domain) while staying
+        off for local ``http://localhost`` development, where a Secure cookie
+        would never be sent back.
+        """
+        return self.effective_base_url.startswith("https://")
+
 
 settings = Settings()
