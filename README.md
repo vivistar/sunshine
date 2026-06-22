@@ -143,6 +143,18 @@ Security-relevant actions are written to a `sunshine.audit` log: admin logins
 | `ALLOW_INSECURE_ADMIN` | Local dev only. `true` permits the open (no-login) admin UI when `ADMIN_PASSWORD` is empty. Never set in production. |
 | `SECRET_KEY` | Optional. Signs the session cookie; defaults to a value derived from `ADMIN_PASSWORD`. Pin a long random value to keep sessions stable across password changes. |
 
+## Pre-commit secret scanning
+
+This repo ships a [pre-commit](https://pre-commit.com) config (`.pre-commit-config.yaml`)
+that runs **gitleaks** to block accidental credential commits. Enable it once per
+clone:
+
+```bash
+pipx install pre-commit   # or: pip install pre-commit
+pre-commit install        # installs the git hook
+pre-commit run --all-files  # optional: scan the whole repo now
+```
+
 ## The methodology, briefly
 
 **Conjoint.** Each respondent completes several **choice tasks**; in each they
