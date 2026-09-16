@@ -7,23 +7,16 @@ import {
   scoreResponse,
 } from './scoring';
 import { EXPOSURE_OPTIONS, DIAGNOSTIC_ITEMS } from './instrument.config';
-import {
-  getResponses,
-  addResponses,
-  clearResponses,
-  getTags,
-  setTagsForResponse,
-} from './storage';
 import { EXAMPLE_RESPONSES } from './sampleData';
 import { parseResponsesCsv, responsesToCsv, downloadCsv } from './csv';
+import {
+  fetchResponses,
+  importResponses,
+  saveTags,
+  clearRemote,
+} from './api';
 
 const fmt = (v, d = 2) => (v == null ? '—' : v.toFixed(d));
-
-// Client-side gate ONLY. With a static SPA there is no server to check a
-// secret, so this is a soft gate, not a security boundary. Anyone determined
-// can read the data in their own browser's storage. For a real access boundary,
-// move responses to a server datastore and check the passphrase server-side.
-const PASSCODE = import.meta.env.VITE_SURVEY_PASSCODE || 'sunshine';
 
 function StatCard({ label, agg, accent }) {
   return (
@@ -33,9 +26,7 @@ function StatCard({ label, agg, accent }) {
         {fmt(agg.mean)}
         <span className="text-sm text-white/40"> / 7</span>
       </p>
-      <p className="text-white/40 text-xs mt-1">
-        n={agg.n} · SD {fmt(agg.sd)}
-      </p>
+      <p className="text-white/40 text-xs mt-1">n={agg.n} · SD {fmt(agg.sd)}</p>
     </div>
   );
 }
@@ -53,19 +44,15 @@ function UvsPPlot({ arms }) {
         Understanding vs. Performance
       </p>
       <p className="text-white/50 text-xs mb-3">
-        Top-right of the diagonal = expected performance outruns understanding
-        (possible over-trust on thin understanding).
+        Above the diagonal = expected performance outruns understanding (possible
+        over-trust on thin understanding).
       </p>
       <svg viewBox={`0 0 ${size} ${size}`} className="w-full max-w-[320px] mx-auto" role="img"
         aria-label="Scatter of understanding versus performance means per condition">
-        {/* over-trust region shading (P > U) */}
-        <polygon
-          points={`${pad},${size - pad} ${size - pad},${pad} ${pad},${pad}`}
-          fill="#f59e0b" opacity="0.08"
-        />
+        <polygon points={`${pad},${size - pad} ${size - pad},${pad} ${pad},${pad}`}
+          fill="#f59e0b" opacity="0.08" />
         <line x1={pad} y1={size - pad} x2={size - pad} y2={pad}
           stroke="#ffffff" strokeOpacity="0.2" strokeDasharray="4 4" />
-        {/* axes */}
         <line x1={pad} y1={size - pad} x2={size - pad} y2={size - pad} stroke="#ffffff" strokeOpacity="0.3" />
         <line x1={pad} y1={pad} x2={pad} y2={size - pad} stroke="#ffffff" strokeOpacity="0.3" />
         <text x={size / 2} y={size - 6} fill="#ffffff" fillOpacity="0.5" fontSize="9" textAnchor="middle">
@@ -98,29 +85,73 @@ function UvsPPlot({ arms }) {
 
 export default function AnalyzePage() {
   const [authed, setAuthed] = useState(false);
-  const [pass, setPass] = useState('');
+  const [passcode, setPasscode] = useState('');
+  const [passInput, setPassInput] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
 
-  const [responses, setResponses] = useState(() => {
-    const stored = getResponses();
-    return stored.length ? stored : EXAMPLE_RESPONSES;
-  });
-  const [usingExamples, setUsingExamples] = useState(getResponses().length === 0);
-  const [tagsMap, setTagsMap] = useState(getTags());
+  const [responses, setResponses] = useState([]);
+  const [usingExamples, setUsingExamples] = useState(false);
+  const [backendDown, setBackendDown] = useState(false);
   const [dropQ9, setDropQ9] = useState(false);
 
   const fileRef = useRef(null);
   const [importReport, setImportReport] = useState(null);
+  const [busy, setBusy] = useState(false);
 
   // Filters
   const [studyFilter, setStudyFilter] = useState('');
   const [exposureFilter, setExposureFilter] = useState('all');
   const [certaintyMin, setCertaintyMin] = useState(1);
 
+  function applyResponses(rows) {
+    if (rows.length) {
+      setResponses(rows);
+      setUsingExamples(false);
+    } else {
+      setResponses(EXAMPLE_RESPONSES);
+      setUsingExamples(true);
+    }
+  }
+
+  async function refetch(code = passcode) {
+    const { responses: rows } = await fetchResponses(code);
+    applyResponses(rows);
+  }
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    setAuthBusy(true);
+    setAuthError('');
+    try {
+      const { responses: rows } = await fetchResponses(passInput);
+      setPasscode(passInput);
+      setAuthed(true);
+      setBackendDown(false);
+      applyResponses(rows);
+    } catch (err) {
+      if (err.status === 401) {
+        setAuthError('Incorrect passphrase.');
+      } else if (err.status === 500 && /SURVEY_PASSCODE/.test(err.data?.error || '')) {
+        setAuthError('Server is missing SURVEY_PASSCODE — set it in Vercel env vars.');
+      } else {
+        // Backend unreachable (e.g. local dev without DB). Allow an offline,
+        // example-only view so the dashboard is still explorable.
+        setPasscode(passInput);
+        setAuthed(true);
+        setBackendDown(true);
+        setResponses(EXAMPLE_RESPONSES);
+        setUsingExamples(true);
+      }
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
   const studies = useMemo(
     () => [...new Set(responses.map((r) => r.study).filter(Boolean))],
     [responses]
   );
-
   const activeStudy = studyFilter || studies[0] || '';
 
   const filtered = useMemo(() => {
@@ -141,21 +172,29 @@ export default function AnalyzePage() {
   const exposureMismatch =
     byCondition.length >= 2 && exposureDistributionsDiffer(byCondition);
 
-  function handleImport(e) {
+  async function handleImport(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const { valid, rejected } = parseResponsesCsv(String(reader.result));
-      if (valid.length) {
-        const merged = addResponses(valid);
-        setResponses(merged);
-        setUsingExamples(false);
-      }
-      setImportReport({ added: valid.length, rejected });
-    };
-    reader.readAsText(file);
     e.target.value = '';
+    const text = await file.text();
+    const { valid, rejected } = parseResponsesCsv(text);
+    if (backendDown) {
+      setImportReport({ added: 0, rejected, note: 'Backend unavailable — import is disabled in offline mode.' });
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await importResponses(passcode, valid);
+      await refetch();
+      setImportReport({
+        added: result.added,
+        rejected: [...rejected, ...(result.rejected || [])],
+      });
+    } catch (err) {
+      setImportReport({ added: 0, rejected, note: `Import failed: ${err.message}` });
+    } finally {
+      setBusy(false);
+    }
   }
 
   function handleExport() {
@@ -165,59 +204,66 @@ export default function AnalyzePage() {
     );
   }
 
-  function loadExamples() {
-    setResponses(EXAMPLE_RESPONSES);
-    setUsingExamples(true);
-  }
-
-  function reset() {
-    clearResponses();
-    setResponses(EXAMPLE_RESPONSES);
-    setUsingExamples(true);
-    setImportReport(null);
-  }
-
-  function updateTags(responseId, raw) {
+  async function updateTags(responseId, raw) {
     const tags = raw.split(',').map((t) => t.trim()).filter(Boolean);
-    const map = setTagsForResponse(responseId, tags);
-    setTagsMap({ ...map });
+    setResponses((rs) =>
+      rs.map((r) => (r.response_id === responseId ? { ...r, tags: tags.join(',') } : r))
+    );
+    if (!backendDown && !usingExamples) {
+      try {
+        await saveTags(passcode, responseId, tags);
+      } catch {
+        /* keep local update; will reconcile on next refetch */
+      }
+    }
+  }
+
+  async function handleClear() {
+    if (backendDown || usingExamples) {
+      setResponses(EXAMPLE_RESPONSES);
+      setUsingExamples(true);
+      return;
+    }
+    if (!confirm('Delete ALL stored responses? This cannot be undone.')) return;
+    setBusy(true);
+    try {
+      await clearRemote(passcode);
+      await refetch();
+      setImportReport(null);
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (!authed) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 flex items-center justify-center px-6">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            setAuthed(pass === PASSCODE);
-          }}
-          className="max-w-sm w-full"
-        >
+        <form onSubmit={handleLogin} className="max-w-sm w-full">
           <Link to="/" className="text-white/40 text-xs uppercase tracking-widest hover:text-white/70">
             ← Sunshine
           </Link>
           <h1 className="font-display text-white text-2xl mt-3 mb-2">Analysis Dashboard</h1>
           <p className="text-white/50 text-sm mb-5">
-            Researcher access. Enter the passphrase.
+            Researcher access. The passphrase is verified on the server.
           </p>
           <input
             type="password"
-            value={pass}
-            onChange={(e) => setPass(e.target.value)}
+            value={passInput}
+            onChange={(e) => setPassInput(e.target.value)}
             placeholder="Passphrase"
             className="w-full rounded-xl bg-white/5 border border-white/20 text-white p-3 mb-3 focus:border-white/60 focus:outline-none"
             autoFocus
           />
-          {pass && pass !== PASSCODE && (
-            <p className="text-red-300 text-xs mb-3">Incorrect passphrase.</p>
-          )}
-          <button className="w-full rounded-xl bg-white text-slate-900 font-semibold py-3 hover:bg-white/90">
-            Enter
+          {authError && <p className="text-red-300 text-xs mb-3">{authError}</p>}
+          <button
+            disabled={authBusy}
+            className="w-full rounded-xl bg-white text-slate-900 font-semibold py-3 hover:bg-white/90 disabled:opacity-60"
+          >
+            {authBusy ? 'Checking…' : 'Enter'}
           </button>
           <p className="text-white/25 text-[11px] mt-4 leading-relaxed">
-            Note: this is a client-side gate on a static site, not a security
-            boundary. Set <code>VITE_SURVEY_PASSCODE</code> at build time to change
-            it. For enforced access control, responses must move to a server store.
+            Access is enforced server-side against <code>SURVEY_PASSCODE</code>.
+            Responses are stored in Vercel Postgres, readable only with the passphrase.
           </p>
         </form>
       </div>
@@ -240,29 +286,45 @@ export default function AnalyzePage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => fileRef.current?.click()}
-              className="rounded-lg border border-white/25 text-white/90 text-sm px-3 py-2 hover:bg-white/10">
+            <button onClick={() => fileRef.current?.click()} disabled={backendDown || busy}
+              className="rounded-lg border border-white/25 text-white/90 text-sm px-3 py-2 hover:bg-white/10 disabled:opacity-40">
               Import CSV
             </button>
             <button onClick={handleExport}
               className="rounded-lg border border-white/25 text-white/90 text-sm px-3 py-2 hover:bg-white/10">
               Export CSV
             </button>
+            <button onClick={() => refetch()} disabled={backendDown || busy}
+              className="rounded-lg border border-white/25 text-white/90 text-sm px-3 py-2 hover:bg-white/10 disabled:opacity-40">
+              Refresh
+            </button>
             <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={handleImport} className="hidden" />
           </div>
         </header>
 
-        {usingExamples && (
+        {backendDown && (
+          <div className="rounded-lg border border-red-400/40 bg-red-500/10 text-red-100 text-sm px-4 py-2.5 mb-5">
+            <strong>Offline mode.</strong> The backend is unreachable (no database
+            configured, or running locally). Showing example data only; import,
+            refresh, and persistence are disabled.
+          </div>
+        )}
+
+        {usingExamples && !backendDown && (
           <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 text-amber-100 text-sm px-4 py-2.5 mb-5">
-            Showing <strong>example data</strong> (illustrative, not real responses).
-            Import a CSV or collect responses via the survey link to replace it.
+            No responses in the database yet — showing <strong>example data</strong>.
+            It is replaced as real responses arrive from the survey link or a CSV import.
           </div>
         )}
 
         {importReport && (
           <div className="rounded-lg border border-white/20 bg-white/5 text-white/80 text-sm px-4 py-3 mb-5">
-            Imported <strong>{importReport.added}</strong> valid row(s).
-            {importReport.rejected.length > 0 && (
+            {importReport.note ? (
+              <span className="text-red-200">{importReport.note}</span>
+            ) : (
+              <>Imported <strong>{importReport.added}</strong> valid row(s).</>
+            )}
+            {importReport.rejected?.length > 0 && (
               <>
                 {' '}Rejected <strong>{importReport.rejected.length}</strong>:
                 <ul className="mt-1 list-disc list-inside text-red-200 text-xs max-h-32 overflow-auto">
@@ -413,7 +475,7 @@ export default function AnalyzePage() {
                 </div>
                 <input
                   type="text"
-                  defaultValue={(tagsMap[r.response_id] || []).join(', ')}
+                  defaultValue={r.tags || ''}
                   onBlur={(e) => updateTags(r.response_id, e.target.value)}
                   placeholder="add tags (comma-separated)…"
                   className="mt-2 w-full rounded-lg bg-slate-900/50 border border-white/15 text-white/90 text-xs p-2 focus:border-white/50 focus:outline-none"
@@ -424,11 +486,9 @@ export default function AnalyzePage() {
           </div>
         </div>
 
-        <div className="flex justify-between items-center mt-6">
-          <button onClick={loadExamples} className="text-white/40 text-xs underline hover:text-white/70">
-            Load example data
-          </button>
-          <button onClick={reset} className="text-red-300/60 text-xs underline hover:text-red-300">
+        <div className="flex justify-end items-center mt-6">
+          <button onClick={handleClear} disabled={busy}
+            className="text-red-300/60 text-xs underline hover:text-red-300 disabled:opacity-40">
             Clear stored responses
           </button>
         </div>

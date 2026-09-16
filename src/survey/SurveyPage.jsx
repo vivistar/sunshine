@@ -9,6 +9,7 @@ import {
   buildStem,
 } from './instrument.config';
 import { saveResponse } from './storage';
+import { submitResponse } from './api';
 import { responsesToCsv, downloadCsv } from './csv';
 import { scoreResponse } from './scoring';
 
@@ -96,7 +97,11 @@ export default function SurveyPage() {
     return Object.keys(e).length === 0;
   }
 
-  function handleSubmit(ev) {
+  const [submitting, setSubmitting] = useState(false);
+  const [offlineSaved, setOfflineSaved] = useState(false);
+  const [lastResponse, setLastResponse] = useState(null);
+
+  async function handleSubmit(ev) {
     ev.preventDefault();
     if (!validate()) {
       const first = document.querySelector('[data-invalid="true"]');
@@ -117,13 +122,22 @@ export default function SurveyPage() {
       source: 'web',
       tags: '',
     };
-    saveResponse(response);
-    setLastResponse(response);
-    setDone(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
 
-  const [lastResponse, setLastResponse] = useState(null);
+    setSubmitting(true);
+    try {
+      await submitResponse(response);
+    } catch {
+      // Backend unreachable (e.g. local dev without DB) — keep the response in
+      // this browser so it isn't lost; it can be exported to CSV and imported.
+      saveResponse(response);
+      setOfflineSaved(true);
+    } finally {
+      setSubmitting(false);
+      setLastResponse(response);
+      setDone(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
 
   if (done) {
     return (
@@ -135,25 +149,29 @@ export default function SurveyPage() {
             Your response has been recorded. There are no right answers — thank
             you for sharing your honest expectations.
           </p>
-          <p className="text-white/40 text-xs mb-6">
-            Responses are stored in this browser. If you are collecting on behalf
-            of a study, you can export this session's responses as CSV to send to
-            the researcher.
-          </p>
-          <button
-            onClick={() =>
-              downloadCsv(
-                `survey-${study || 'responses'}.csv`,
-                responsesToCsv(
-                  lastResponse ? [lastResponse] : [],
-                  (r) => scoreResponse(r)
+          {offlineSaved && (
+            <p className="text-amber-200/80 text-xs mb-6">
+              The server was unreachable, so your response was saved in this
+              browser instead. You can export it as CSV below and send it to the
+              researcher to import.
+            </p>
+          )}
+          {offlineSaved && (
+            <button
+              onClick={() =>
+                downloadCsv(
+                  `survey-${study || 'responses'}.csv`,
+                  responsesToCsv(
+                    lastResponse ? [lastResponse] : [],
+                    (r) => scoreResponse(r)
+                  )
                 )
-              )
-            }
-            className="text-white/70 underline text-sm hover:text-white"
-          >
-            Download my response (CSV)
-          </button>
+              }
+              className="text-white/70 underline text-sm hover:text-white"
+            >
+              Download my response (CSV)
+            </button>
+          )}
         </div>
       </div>
     );
@@ -266,9 +284,10 @@ export default function SurveyPage() {
 
         <button
           type="submit"
-          className="w-full rounded-xl bg-white text-slate-900 font-semibold py-3.5 hover:bg-white/90 transition-colors"
+          disabled={submitting}
+          className="w-full rounded-xl bg-white text-slate-900 font-semibold py-3.5 hover:bg-white/90 transition-colors disabled:opacity-60"
         >
-          Submit
+          {submitting ? 'Submitting…' : 'Submit'}
         </button>
         <p className="text-white/30 text-xs mt-4 text-center">
           Anticipated trust (adapted TOAST). Your answers are anonymous.
